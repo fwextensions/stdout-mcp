@@ -25,7 +25,12 @@ which stores them even when no agent is connected, so logs from before this \
 session started are available.
 
 Start with get_logs to see recent output, or list_sources to see which \
-extensions and pages have logged. Every result includes a cursor; pass it as \
+extensions and pages have logged. Logs from every extension are mixed \
+together, so when you know which extension you're working on, such as from \
+the name in the project's manifest.json, pass it as \`extension\`. get_logs \
+says when its results come from more than one extension.
+
+Every result includes a cursor; pass it as \
 \`after\` to get only newer entries. Use \`since\` to limit results to a recent \
 time span, or \`around\` to see the entries near one you found. Each entry \
 shows the time since the previous one, and a "loaded" line marks the first \
@@ -199,6 +204,35 @@ function getConnectionNote(
 	return "";
 }
 
+	// tell the agent when other extensions' logs are mixed in, since a noisy one
+	// can crowd out the extension it's working on
+function getMixedSourcesNote(
+	entries)
+{
+	const counts = new Map();
+
+	for (const { mark, extensionId, extensionName } of entries) {
+		if (!mark) {
+			const source = counts.get(extensionId) ?? { name: extensionName ?? extensionId, count: 0 };
+
+			source.count++;
+			counts.set(extensionId, source);
+		}
+	}
+
+	if (counts.size < 2) {
+		return "";
+	}
+
+	const list = [...counts.values()]
+		.sort((a, b) => b.count - a.count)
+		.map(({ name, count }) => `${name} (${count})`)
+		.join(", ");
+
+	return `These entries come from ${counts.size} extensions: ${list}. `
+		+ "To see only one, pass its name or ID as `extension`.";
+}
+
 /**
  * @param {...(string|false|undefined)} parts  Falsy parts are left out.
  * @returns {CallToolResult}
@@ -291,6 +325,7 @@ export function createMcpServer(
 					result.cursorReset && "The stdout extension's log buffer was reset, so the cursor no longer applies. These are the latest entries.",
 					entries.length ? formatEntries(entries) : "No matching log entries.",
 					hasMore && "There may be more entries after these.",
+					getMixedSourcesNote(entries),
 					`cursor: ${cursor} (pass as \`after\` to get only newer entries)`,
 					getConnectionNote(result)
 				);

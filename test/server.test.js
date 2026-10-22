@@ -182,3 +182,16 @@ test("marks the log and shows page loads and time deltas", async () => {
 	assert.match(await callTool("get_logs", { since: "1m", search: "second" }), /#5 .*mark.*\n#7 /);
 	assert.equal((await client.callTool({ name: "get_logs", arguments: { since: "soon" } })).isError, true);
 });
+
+test("says when logs come from more than one extension", async () => {
+	await ingest({
+		afterSeq: 6,
+		entries: [entry(7, ["from another extension"], "log", { extensionId: "ponmlkjihgfedcbaponmlkjihgfedcba", extensionName: "Other Extension" })],
+	});
+
+	assert.match(
+		await callTool("get_logs", { since: "1m" }),
+		/These entries come from 2 extensions: Test Extension \(6\), Other Extension \(1\)\. To see only one, pass its name or ID as `extension`\./
+	);
+	assert.doesNotMatch(await callTool("get_logs", { extension: "Test Extension" }), /These entries come from/);
+});
