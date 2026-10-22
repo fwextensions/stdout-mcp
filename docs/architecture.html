@@ -1,0 +1,464 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>stdout MCP Architecture</title>
+	<link rel="preconnect" href="https://fonts.googleapis.com">
+	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+	<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Public+Sans:ital,wght@0,400;0,600;0,700;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+	<style>
+		/* layout: one reading column; the diagram and tables get their own scroll boxes */
+	:root {
+		--bg: #f6f7f6;
+		--surface: #ffffff;
+		--fg: #1c2321;
+		--muted: #5b6662;
+		--line: #d5dbd8;
+		--accent: #2e7d32;      /* the MCP badge's "connected" green */
+		--accent-soft: #e3f0e3;
+		--waiting: #888888;     /* the badge's "waiting" grey */
+		--code-bg: #eceeed;
+		--font-body: "Public Sans", "Segoe UI", system-ui, sans-serif;
+		--font-mono: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+	}
+	@media (prefers-color-scheme: dark) {
+		:root:not([data-theme="light"]) {
+			--bg: #141917;
+			--surface: #1c2220;
+			--fg: #e4e9e6;
+			--muted: #9aa5a0;
+			--line: #333d39;
+			--accent: #6cc070;
+			--accent-soft: #1f3321;
+			--waiting: #9a9a9a;
+			--code-bg: #232a27;
+			color-scheme: dark;
+		}
+	}
+	:root[data-theme="dark"] {
+		--bg: #141917;
+		--surface: #1c2220;
+		--fg: #e4e9e6;
+		--muted: #9aa5a0;
+		--line: #333d39;
+		--accent: #6cc070;
+		--accent-soft: #1f3321;
+		--waiting: #9a9a9a;
+		--code-bg: #232a27;
+		color-scheme: dark;
+	}
+
+	body {
+		margin: 0;
+		background: var(--bg);
+		color: var(--fg);
+		font-family: var(--font-body);
+		font-size: 16px;
+		line-height: 1.6;
+	}
+
+	main {
+		max-width: 46rem;
+		margin: 0 auto;
+		padding-block: 2.5rem 4rem;
+		padding-left: max(16px, env(safe-area-inset-left, 0px));
+		padding-right: max(16px, env(safe-area-inset-right, 0px));
+		display: grid;
+		gap: 2.75rem;
+	}
+
+	section {
+		display: grid;
+		gap: 0.9rem;
+		min-width: 0;
+	}
+
+	h1, h2, h3 {
+		text-wrap: balance;
+		line-height: 1.25;
+		margin: 0;
+	}
+	h1 {
+		font-size: 2rem;
+		font-weight: 700;
+		letter-spacing: -0.01em;
+	}
+	h2 {
+		font-size: 1.35rem;
+		font-weight: 700;
+	}
+	h3 {
+		font-size: 1.05rem;
+		font-weight: 600;
+	}
+	p, ul, ol {
+		margin: 0;
+	}
+	ul, ol {
+		padding-left: 1.3rem;
+		display: grid;
+		gap: 0.45rem;
+	}
+
+	.eyebrow {
+		font-family: var(--font-mono);
+		font-size: 0.78rem;
+		letter-spacing: 0.08em;
+		text-transform: uppercase;
+		color: var(--muted);
+	}
+	.lede {
+		font-size: 1.1rem;
+		color: var(--muted);
+	}
+
+	code, .mono {
+		font-family: var(--font-mono);
+		font-size: 0.88em;
+	}
+	:not(pre) > code {
+		background: var(--code-bg);
+		padding: 0.08em 0.35em;
+		border-radius: 4px;
+		overflow-wrap: anywhere;
+	}
+	pre {
+		margin: 0;
+		background: var(--code-bg);
+		padding: 0.85rem 1rem;
+		border-radius: 6px;
+		overflow-x: auto;
+		font-size: 0.92rem;
+		line-height: 1.5;
+	}
+
+	a {
+		color: var(--accent);
+	}
+	a:focus-visible {
+		outline: 2px solid var(--accent);
+		outline-offset: 2px;
+	}
+
+	.figure {
+		display: grid;
+		gap: 0.6rem;
+	}
+	.diagram-scroll {
+		overflow-x: auto;
+		background: var(--surface);
+		border: 1px solid var(--line);
+		border-radius: 8px;
+		padding: 0.75rem;
+	}
+	.diagram-scroll svg {
+		display: block;
+		width: 100%;
+		min-width: 640px;
+		height: auto;
+	}
+	.caption {
+		font-size: 0.9rem;
+		color: var(--muted);
+	}
+
+		/* svg parts, colored from the same tokens */
+	.d-group { fill: none; stroke: var(--line); stroke-dasharray: 4 4; }
+	.d-box { fill: var(--surface); stroke: var(--fg); stroke-width: 1.2; }
+	.d-box-main { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 1.6; }
+	.d-title { fill: var(--fg); font-family: var(--font-mono); font-size: 13px; font-weight: 600; }
+	.d-text { fill: var(--muted); font-family: var(--font-body); font-size: 12px; }
+	.d-group-label { fill: var(--muted); font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; }
+	.d-wire { stroke: var(--fg); stroke-width: 1.4; fill: none; }
+	.d-wire-http { stroke: var(--accent); stroke-width: 1.8; fill: none; }
+	.d-label { fill: var(--fg); font-family: var(--font-mono); font-size: 11px; }
+	.d-label-http { fill: var(--accent); font-family: var(--font-mono); font-size: 11px; font-weight: 600; }
+	.d-arrow { fill: var(--fg); }
+	.d-arrow-http { fill: var(--accent); }
+
+	.table-scroll {
+		overflow-x: auto;
+		min-width: 0;
+	}
+	table {
+		border-collapse: collapse;
+		width: 100%;
+		font-size: 0.93rem;
+		line-height: 1.45;
+	}
+	th, td {
+		text-align: left;
+		vertical-align: top;
+		padding: 0.55rem 0.7rem;
+		border-bottom: 1px solid var(--line);
+	}
+	th {
+		font-size: 0.78rem;
+		font-family: var(--font-mono);
+		letter-spacing: 0.05em;
+		text-transform: uppercase;
+		color: var(--muted);
+		font-weight: 500;
+	}
+	td:first-child {
+		white-space: nowrap;
+	}
+	.yes, .no {
+		font-family: var(--font-mono);
+		font-size: 0.85rem;
+		font-weight: 600;
+		white-space: nowrap;
+	}
+	.yes { color: var(--accent); }
+	.no { color: var(--waiting); }
+
+	.steps {
+		counter-reset: step;
+		list-style: none;
+		padding: 0;
+		gap: 0.8rem;
+	}
+	.steps li {
+		counter-increment: step;
+		display: grid;
+		grid-template-columns: 2rem 1fr;
+		gap: 0.6rem;
+	}
+	.steps li::before {
+		content: counter(step);
+		font-family: var(--font-mono);
+		font-weight: 600;
+		color: var(--accent);
+		border: 1px solid var(--accent);
+		border-radius: 50%;
+		width: 1.6rem;
+		height: 1.6rem;
+		display: grid;
+		place-items: center;
+		font-size: 0.8rem;
+		margin-top: 0.1rem;
+	}
+	.steps li > div {
+		min-width: 0;
+	}
+
+	.note {
+		font-size: 0.92rem;
+		color: var(--muted);
+		border-left: 2px solid var(--line);
+		padding-left: 0.9rem;
+	}
+
+	footer {
+		font-size: 0.85rem;
+		color: var(--muted);
+		border-top: 1px solid var(--line);
+		padding-top: 1rem;
+	}
+	</style>
+</head>
+<body>
+	<main>
+		<header style="display:grid;gap:0.6rem">
+			<div class="eyebrow">stdout-ext · mcp/</div>
+			<h1>stdout MCP Architecture</h1>
+			<p class="lede">How console output gets from your extension to a coding agent, which process does what, and why the agent talks stdio to a relay instead of HTTP to the daemon.</p>
+		</header>
+
+		<section>
+			<h2>The pieces</h2>
+			<div class="figure">
+				<div class="diagram-scroll" role="img" aria-label="Diagram: your extension sends console calls to the stdout extension, which posts them to the daemon on port 47321. Each agent session talks stdio to its own relay process, which posts MCP messages to the same daemon.">
+					<svg viewBox="0 0 910 320" xmlns="http://www.w3.org/2000/svg">
+						<defs>
+							<marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+								<path d="M0,0 L10,5 L0,10 z" class="d-arrow"/>
+							</marker>
+							<marker id="arrow-http" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+								<path d="M0,0 L10,5 L0,10 z" class="d-arrow-http"/>
+							</marker>
+						</defs>
+
+						<!-- group outlines -->
+						<rect class="d-group" x="8" y="30" width="214" height="282" rx="10"/>
+						<rect class="d-group" x="288" y="30" width="204" height="282" rx="10"/>
+						<rect class="d-group" x="548" y="30" width="354" height="282" rx="10"/>
+						<text class="d-group-label" x="20" y="22">Chrome</text>
+						<text class="d-group-label" x="300" y="22">One per machine</text>
+						<text class="d-group-label" x="560" y="22">One per agent session</text>
+
+						<!-- chrome -->
+						<rect class="d-box" x="25" y="50" width="180" height="66" rx="6"/>
+						<text class="d-title" x="37" y="74">Your extension</text>
+						<text class="d-text" x="37" y="94">stdout-ext library</text>
+						<text class="d-text" x="37" y="108">wraps console.*</text>
+
+						<rect class="d-box" x="25" y="196" width="180" height="96" rx="6"/>
+						<text class="d-title" x="37" y="220">stdout extension</text>
+						<text class="d-text" x="37" y="240">IndexedDB buffer of the</text>
+						<text class="d-text" x="37" y="254">last 10,000 entries</text>
+						<text class="d-text" x="37" y="276">MCP badge on its icon</text>
+
+						<!-- daemon -->
+						<rect class="d-box-main" x="300" y="86" width="180" height="190" rx="6"/>
+						<text class="d-title" x="312" y="110">Daemon</text>
+						<text class="d-text" x="312" y="128">mcp/daemon.js</text>
+						<text class="d-text" x="312" y="150">127.0.0.1:47321</text>
+						<text class="d-text" x="312" y="172">LogStore (in memory)</text>
+						<text class="d-text" x="312" y="190">MCP tools (tools.js)</text>
+						<text class="d-text" x="312" y="212">/ingest  /mcp  /health</text>
+						<text class="d-text" x="312" y="252">Exits after 2 hours</text>
+						<text class="d-text" x="312" y="266">without an agent request</text>
+
+						<!-- sessions -->
+						<rect class="d-box" x="565" y="56" width="140" height="66" rx="6"/>
+						<text class="d-title" x="577" y="80">Relay</text>
+						<text class="d-text" x="577" y="98">mcp/server.js</text>
+						<text class="d-text" x="577" y="112">stdout-ext-mcp</text>
+
+						<rect class="d-box" x="750" y="56" width="140" height="66" rx="6"/>
+						<text class="d-title" x="762" y="80">Agent</text>
+						<text class="d-text" x="762" y="98">Claude Code</text>
+						<text class="d-text" x="762" y="112">session A</text>
+
+						<rect class="d-box" x="565" y="226" width="140" height="66" rx="6"/>
+						<text class="d-title" x="577" y="250">Relay</text>
+						<text class="d-text" x="577" y="268">mcp/server.js</text>
+						<text class="d-text" x="577" y="282">stdout-ext-mcp</text>
+
+						<rect class="d-box" x="750" y="226" width="140" height="66" rx="6"/>
+						<text class="d-title" x="762" y="250">Agent</text>
+						<text class="d-text" x="762" y="268">another client</text>
+						<text class="d-text" x="762" y="282">session B</text>
+
+						<!-- wires -->
+						<line class="d-wire" x1="115" y1="117" x2="115" y2="193" marker-end="url(#arrow)"/>
+						<text class="d-label" x="123" y="160">runtime.sendMessage</text>
+
+						<line class="d-wire-http" x1="206" y1="244" x2="297" y2="244" marker-end="url(#arrow-http)"/>
+						<text class="d-label-http" x="212" y="236">POST /ingest</text>
+
+						<line class="d-wire-http" x1="483" y1="140" x2="562" y2="94" marker-start="url(#arrow-http)" marker-end="url(#arrow-http)"/>
+						<text class="d-label-http" x="490" y="104">POST /mcp</text>
+
+						<line class="d-wire-http" x1="483" y1="222" x2="562" y2="258" marker-start="url(#arrow-http)" marker-end="url(#arrow-http)"/>
+						<text class="d-label-http" x="490" y="262">POST /mcp</text>
+
+						<line class="d-wire" x1="708" y1="89" x2="747" y2="89" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+						<text class="d-label" x="711" y="81">stdio</text>
+
+						<line class="d-wire" x1="708" y1="259" x2="747" y2="259" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+						<text class="d-label" x="711" y="251">stdio</text>
+					</svg>
+				</div>
+				<p class="caption">Green lines are HTTP to the daemon, black lines are local message passing. Every relay talks to the same daemon, so all sessions see the same logs.</p>
+			</div>
+
+			<div class="table-scroll">
+				<table>
+					<thead>
+						<tr><th>Process</th><th>How many</th><th>Lifetime</th><th>Job</th></tr>
+					</thead>
+					<tbody>
+						<tr>
+							<td>stdout extension</td>
+							<td>One in Chrome</td>
+							<td>While Chrome runs</td>
+							<td>Stores console calls from your extensions. In agent mode, sends them to the daemon as they arrive and checks for the daemon once a minute.</td>
+						</tr>
+						<tr>
+							<td>Daemon</td>
+							<td>One per machine</td>
+							<td>Until 2 hours idle, or replaced</td>
+							<td>Holds the logs, accepts them from the extension, and runs the MCP tools. It's the only process the extension talks to.</td>
+						</tr>
+						<tr>
+							<td>Relay</td>
+							<td>One per agent session</td>
+							<td>The agent session</td>
+							<td>Starts or replaces the daemon when needed, then copies MCP messages between the agent's stdio and the daemon's <code>/mcp</code> endpoint.</td>
+						</tr>
+					</tbody>
+				</table>
+			</div>
+		</section>
+
+		<section>
+			<h2>What happens on a tool call</h2>
+			<ol class="steps">
+				<li><div>The agent calls a tool such as <code>get_logs</code>. It writes the JSON-RPC request to the relay's stdin.</div></li>
+				<li><div>On the session's first message, the relay checks <code>GET /health</code>. If nothing answers, it starts the daemon as a detached process. If the daemon reports a hash of older code, the relay stops it and starts a new one.</div></li>
+				<li><div>The relay sends the message to <code>POST /mcp</code>. If the connection fails because the daemon exited, it starts the daemon and sends the message again.</div></li>
+				<li><div>The daemon creates an MCP server for this one request, runs the tool against its log store, and returns the result.</div></li>
+				<li><div>The relay writes the response to its stdout, where the agent reads it.</div></li>
+			</ol>
+			<p class="note">Separately, the stdout extension posts to <code>/ingest</code> whenever new logs arrive and once a minute. That's what turns its MCP badge green. It never talks to a relay.</p>
+		</section>
+
+		<section>
+			<h2>Why not put everything in the stdio process?</h2>
+			<p>That would remove the daemon, but three things need a process that outlives any one agent session:</p>
+			<ul>
+				<li><strong>The extension needs one fixed address.</strong> It posts to port 47321. Two agent sessions open at once would both try to listen on that port, and only one could.</li>
+				<li><strong>Logs should survive the session.</strong> A process the agent starts also exits with it. A daemon keeps the logs for the next session, and the extension only resends what the daemon is missing.</li>
+				<li><strong>Tool changes should reach every session.</strong> Because the tools run in the daemon, replacing it updates every open session at once.</li>
+			</ul>
+		</section>
+
+		<section>
+			<h2>Why not point the agent at the daemon's HTTP endpoint?</h2>
+			<p>It would work while the daemon is running, since the relay only copies messages to the daemon's <code>/mcp</code> endpoint and back. What the relay adds is managing the daemon, which an HTTP URL in the agent's config can't do:</p>
+			<div class="table-scroll">
+				<table>
+					<thead>
+						<tr><th>Agent config points at</th><th>stdio relay (current)</th><th>HTTP URL directly</th></tr>
+					</thead>
+					<tbody>
+						<tr><td>Starts the daemon when nothing is running</td><td class="yes">Yes</td><td class="no">No</td></tr>
+						<tr><td>Restarts it after the 2-hour idle exit</td><td class="yes">Yes</td><td class="no">No</td></tr>
+						<tr><td>Replaces a daemon running older code</td><td class="yes">Yes</td><td class="no">No</td></tr>
+						<tr><td>Works in MCP clients that only support stdio</td><td class="yes">Yes</td><td class="no">No</td></tr>
+						<tr><td>Same setup in every project</td><td class="yes">npx stdout-ext-mcp</td><td class="no">Start the daemon yourself</td></tr>
+						<tr><td>Extra process per session</td><td class="no">One small Node process</td><td class="yes">None</td></tr>
+					</tbody>
+				</table>
+			</div>
+			<p>The extra hop is a local pipe plus one loopback HTTP request, so it adds only a few milliseconds to each call.</p>
+		</section>
+
+		<section>
+			<h2>About "streamable"</h2>
+			<p>Streamable HTTP is MCP's name for its HTTP transport. Each message is a POST, and the server can answer with plain JSON or, when it has several messages to send before the result (such as progress updates), with a stream of server-sent events. These tools don't send progress, so the daemon answers each request with a single JSON response. The relay gets that response and passes it straight to the agent.</p>
+			<p>With the 2026-07-28 protocol there are no sessions on the HTTP side either. Every request carries its own protocol version, so each one is handled by a fresh server. Clients still using the 2025 protocol are served the same way.</p>
+		</section>
+
+		<section>
+			<h2>Using the HTTP endpoint directly anyway</h2>
+			<p>If you'd rather skip the relay, start the daemon yourself and add it to Claude Code as an HTTP server:</p>
+			<pre><code>node mcp/daemon.js
+	claude mcp add --transport http stdout http://127.0.0.1:47321/mcp</code></pre>
+			<p>The daemon accepts MCP requests that don't send a browser <code>Origin</code> header, which is how agents connect. You'd then have to restart the daemon after it exits for being idle, or raise <code>STDOUT_MCP_IDLE_MINUTES</code>, and restart it yourself after updating the package.</p>
+		</section>
+
+		<section>
+			<h2>Daemon endpoints</h2>
+			<div class="table-scroll">
+				<table>
+					<thead>
+						<tr><th>Endpoint</th><th>Who calls it</th><th>Allowed from</th></tr>
+					</thead>
+					<tbody>
+						<tr><td><code>POST /ingest</code></td><td>stdout extension</td><td>Only the stdout extension's <code>chrome-extension://</code> origin</td></tr>
+						<tr><td><code>/mcp</code></td><td>Relays, or an agent directly</td><td>Requests without an <code>Origin</code> header, or from the stdout extension</td></tr>
+						<tr><td><code>GET /health</code></td><td>Relays</td><td>Same as <code>/mcp</code></td></tr>
+					</tbody>
+				</table>
+			</div>
+			<p class="note">Every request must be addressed to <code>127.0.0.1:47321</code> or <code>localhost:47321</code>, which keeps web pages from reaching the daemon through DNS rebinding. Browsers always send an <code>Origin</code> with cross-origin requests, so web pages can't read the logs either.</p>
+		</section>
+
+		<footer>Describes the code as of commit 6ac2202: MCP SDK v2, protocol 2026-07-28 with 2025-era clients still supported.</footer>
+	</main>
+</body>
+</html>
