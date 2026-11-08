@@ -75,7 +75,7 @@ test("lists the tools", async () => {
 	const { tools } = await client.listTools();
 
 	assert.equal(client.getNegotiatedProtocolVersion(), "2026-07-28");
-	assert.deepEqual(tools.map(({ name }) => name).sort(), ["get_logs", "list_sources", "mark", "wait_for_log"]);
+	assert.deepEqual(tools.map(({ name }) => name).sort(), ["get_logs", "list_sources", "mark", "reload_extension", "wait_for_log"]);
 });
 
 test("serves clients using the 2025 protocol", async () => {
@@ -83,7 +83,7 @@ test("serves clients using the 2025 protocol", async () => {
 	const result = await legacyClient.callTool({ name: "list_sources", arguments: {} });
 
 	assert.equal(legacyClient.getNegotiatedProtocolVersion(), "2025-11-25");
-	assert.equal(tools.length, 4);
+	assert.equal(tools.length, 5);
 	assert.match(result.content[0].text, /Log server started/);
 });
 
@@ -114,7 +114,7 @@ test("only accepts entries from the stdout extension", async () => {
 test("returns ingested logs with a cursor", async () => {
 	let response = await ingest({ afterSeq: null, entries: [] });
 
-	assert.deepEqual(await response.json(), { maxSeq: 0 });
+	assert.deepEqual(await response.json(), { maxSeq: 0, agentActive: true });
 	response = await ingest({
 		afterSeq: 0,
 		entries: [
@@ -122,7 +122,7 @@ test("returns ingested logs with a cursor", async () => {
 			entry(2, ["request failed", { __type: "Error", name: "TypeError", message: "boom", stack: "TypeError: boom\n    at foo (sw.js:1:1)" }], "error"),
 		],
 	});
-	assert.deepEqual(await response.json(), { maxSeq: 2 });
+	assert.deepEqual(await response.json(), { maxSeq: 2, agentActive: true });
 
 	const text = await callTool("get_logs");
 
@@ -194,4 +194,63 @@ test("says when logs come from more than one extension", async () => {
 		/These entries come from 2 extensions: Test Extension \(6\), Other Extension \(1\)\. To see only one, pass its name or ID as `extension`\./
 	);
 	assert.doesNotMatch(await callTool("get_logs", { extension: "Test Extension" }), /These entries come from/);
+});
+
+function postCommands(
+	path,
+	body,
+	origin = extensionOrigin)
+{
+	return fetch(`${baseURL}${path}`, {
+		method: "POST",
+		headers: { "Content-Type": "application/json", Origin: origin },
+		body: JSON.stringify(body ?? {}),
+	});
+}
+
+async function answerReload(
+	outcome,
+	reloadManifest)
+{
+	const call = callTool("reload_extension", { extension: "Test Extension", reloadManifest });
+	const { commands, agentActive } = await postCommands("/commands").then((response) => response.json());
+
+	assert.equal(agentActive, true);
+	assert.deepEqual(
+		commands.map(({ name, args }) => ({ name, args })),
+		[{ name: "reload", args: { extension: "Test Extension", ...(reloadManifest && { reloadManifest }) } }]
+	);
+	await postCommands("/commands/result", { id: commands[0].id, ...outcome });
+
+	return call;
+}
+
+test("only the stdout extension can get commands or report results", async () => {
+	assert.equal((await postCommands("/commands", {}, "https://example.com")).status, 403);
+	assert.equal((await postCommands("/commands/result", { id: 1 }, "chrome-extension://someoneelse")).status, 403);
+});
+
+test("reloads an extension through the stdout extension", async () => {
+	const text = await answerReload({ result: { id: "abc", name: "Test Extension", manifest: "skipped" } });
+
+	assert.match(text, /Reloaded the code of Test Extension \(abc\)\. manifest\.json was not read again/);
+	assert.match(text, /cursor: 8 \(pass as `after` to get the entries logged since the reload\)/);
+});
+
+test("says whether reloading the manifest worked", async () => {
+	const result = { id: "abc", name: "Test Extension", version: "2.0" };
+	const expected = {
+		reloaded: /including its manifest\.json\. It's now version 2\.0/,
+		unconfirmed: /didn't call stdout\(\) again/,
+		failed: /didn't come back/,
+		unreachable: /manifest\.json was not read again, because the extension didn't answer/,
+	};
+
+	for (const [manifest, pattern] of Object.entries(expected)) {
+		assert.match(await answerReload({ result: { ...result, manifest } }, true), pattern);
+	}
+});
+
+test("reports why an extension couldn't be reloaded", async () => {
+	assert.match(await answerReload({ error: "Test Extension is turned off" }), /^Test Extension is turned off$/);
 });

@@ -394,6 +394,7 @@
 				<li><div>The relay writes the response to its stdout, where the agent reads it.</div></li>
 			</ol>
 			<p class="note">Separately, the stdout extension posts to <code>/ingest</code> whenever new logs arrive and once a minute. That's what turns its MCP badge green. It never talks to a relay.</p>
+			<p class="note">The daemon can't start a conversation with the extension, so commands like <code>reload_extension</code> wait in a queue. While an agent is active, each <code>/ingest</code> response says so, and the stdout extension's service worker holds a <code>POST /commands</code> request open for up to 25 seconds at a time. That keeps only its own worker awake, and it stops five minutes after the agent's last request.</p>
 		</section>
 
 		<section>
@@ -450,6 +451,7 @@
 					</thead>
 					<tbody>
 						<tr><td><code>POST /ingest</code></td><td>stdout extension</td><td>Only the stdout extension's <code>chrome-extension://</code> origin</td></tr>
+						<tr><td><code>POST /commands</code>, <code>/commands/result</code></td><td>stdout extension</td><td>Only the stdout extension's <code>chrome-extension://</code> origin</td></tr>
 						<tr><td><code>/mcp</code></td><td>Relays, or an agent directly</td><td>Requests without an <code>Origin</code> header, or from the stdout extension</td></tr>
 						<tr><td><code>GET /health</code></td><td>Relays</td><td>Same as <code>/mcp</code></td></tr>
 					</tbody>

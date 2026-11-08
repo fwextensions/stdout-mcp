@@ -3,6 +3,7 @@ import { createServer } from "node:http";
 import { randomUUID } from "node:crypto";
 import { createMcpHandler } from "@modelcontextprotocol/server";
 import { toNodeHandler } from "@modelcontextprotocol/node";
+import { CommandQueue } from "./commands.js";
 import { ExtensionOrigin, IdleTimeout, Port } from "./constants.js";
 import { LogStore } from "./store.js";
 import { createMcpServer } from "./tools.js";
@@ -12,13 +13,21 @@ import { getCodeVersion } from "./version.js";
 const MaxBodySize = 16 * 1024 * 1024;
 	// returned by route() when it has already sent the response
 const Handled = Symbol("handled");
+	// Chrome shuts down a service worker whose fetch takes more than 30 seconds
+const CommandPollTime = 25 * 1000;
+	// how long after an agent's last request the extension keeps polling for
+	// commands, which keeps its service worker awake
+const AgentActiveTime = 5 * 60 * 1000;
+const ExtensionRoutes = new Set(["/ingest", "/commands", "/commands/result"]);
 
 const store = new LogStore();
+const commands = new CommandQueue();
 const bootId = randomUUID();
 const codeVersion = getCodeVersion();
 const startedAt = Date.now();
 const allowedHosts = new Set([`127.0.0.1:${Port}`, `localhost:${Port}`]);
 let lastActivity = Date.now();
+let lastAgentRequest = 0;
 let activeRequests = 0;
 
 class HTTPError extends Error
@@ -77,7 +86,36 @@ function getStatus()
 
 	// each request gets its own server, since the 2026-07-28 protocol has no
 	// sessions.  requests from 2025-era clients are served the same way.
-const handleMCP = toNodeHandler(createMcpHandler(() => createMcpServer({ store, getStatus })));
+const handleMCP = toNodeHandler(createMcpHandler(() => createMcpServer({ store, getStatus, commands })));
+
+function isAgentActive()
+{
+	return activeRequests > 0 || Date.now() - lastAgentRequest < AgentActiveTime;
+}
+
+async function handleExtensionRequest(
+	url,
+	req,
+	res)
+{
+	if (url === "/ingest") {
+		return { ...store.ingest(await readJSON(req)), agentActive: isAgentActive() };
+	}
+
+	if (url === "/commands") {
+		const { promise, cancel } = commands.poll(CommandPollTime);
+
+		res.on("close", cancel);
+
+		return { commands: await promise, agentActive: isAgentActive() };
+	}
+
+	const { id, result, error } = await readJSON(req);
+
+	commands.complete(id, { result, error });
+
+	return { ok: true };
+}
 
 async function route(
 	req,
@@ -92,12 +130,12 @@ async function route(
 		throw new HTTPError(403, "Forbidden host");
 	}
 
-	if (method === "POST" && url === "/ingest") {
+	if (method === "POST" && ExtensionRoutes.has(url)) {
 		if (origin !== ExtensionOrigin) {
 			throw new HTTPError(403, "Forbidden origin");
 		}
 
-		return store.ingest(await readJSON(req));
+		return handleExtensionRequest(url, req, res);
 	}
 
 		// browsers always send an Origin with cross-origin requests, so this keeps
@@ -119,7 +157,7 @@ async function route(
 		activeRequests++;
 		res.on("close", () => {
 			activeRequests--;
-			lastActivity = Date.now();
+			lastActivity = lastAgentRequest = Date.now();
 		});
 		await handleMCP(req, res);
 

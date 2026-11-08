@@ -1,0 +1,151 @@
+const RegisteredPrefix = "registered:";
+	// waking a service worker can take a moment
+const ReloadAnswerTimeout = 5 * 1000;
+const RestartTimeout = 10 * 1000;
+
+	// avoids writing to storage for every message once a sender is recorded
+const registeredIDs = new Set();
+const restartWaiters = new Map();
+
+/**
+ * Remember an extension that has called stdout(), since only those can be
+ * reloaded by an agent.  Each one gets its own key, so that extensions
+ * registering at the same time can't overwrite each other.
+ */
+export function registerExtension(
+	id)
+{
+	if (registeredIDs.has(id)) {
+		return;
+	}
+
+	registeredIDs.add(id);
+	chrome.storage.local.set({ [RegisteredPrefix + id]: true })
+		.catch((error) => {
+			registeredIDs.delete(id);
+			console.error("stdout: couldn't register extension", error);
+		});
+}
+
+/**
+ * Note that a registering extension has started, which is how we can tell that
+ * a full reload worked.  Content scripts in open tabs register whenever a page
+ * loads, so those don't count.
+ */
+export function notifyRegistered(
+	{ id, tab })
+{
+	if (!tab) {
+		restartWaiters.get(id)?.(true);
+	}
+}
+
+function waitForRestart(
+	id)
+{
+	return new Promise((resolve) => {
+		const finish = (restarted) => {
+			clearTimeout(timer);
+			restartWaiters.delete(id);
+			resolve(restarted);
+		};
+		const timer = setTimeout(() => finish(false), RestartTimeout);
+
+		restartWaiters.set(id, finish);
+	});
+}
+
+	// the extension only answers if its service worker can run and it's using a
+	// version of the library that handles this message
+async function askToReload(
+	id)
+{
+	const timeout = new Promise((resolve) => setTimeout(resolve, ReloadAnswerTimeout, false));
+
+	try {
+		return await Promise.race([chrome.runtime.sendMessage(id, { type: "reload" }), timeout]) === true;
+	} catch {
+		return false;
+	}
+}
+
+async function confirmFullReload(
+	id)
+{
+	const restarted = await waitForRestart(id);
+	const installed = await chrome.management.get(id).catch(() => null);
+
+	if (!installed?.enabled) {
+		return { manifest: "failed" };
+	}
+
+	return { manifest: restarted ? "reloaded" : "unconfirmed", version: installed.version };
+}
+
+async function findExtension(
+	extension)
+{
+	const [installed, stored] = await Promise.all([
+		chrome.management.getAll(),
+		chrome.storage.local.get(null),
+	]);
+	const registered = installed.filter(({ id }) => stored[RegisteredPrefix + id]);
+	const nameLower = extension.toLowerCase();
+	const matches = registered.filter(({ id, name }) => id === extension || name.toLowerCase() === nameLower);
+
+	if (matches.length > 1) {
+		throw new Error(`More than one extension is named "${extension}". Use one of these IDs instead: `
+			+ matches.map(({ id }) => id).join(", "));
+	}
+
+	if (!matches.length) {
+		const names = registered.map(({ id, name }) => `${name} (${id})`).join(", ");
+
+		throw new Error(`No extension with that name or ID has called stdout(). `
+			+ (names ? `These can be reloaded: ${names}.` : "No extensions have called it yet."));
+	}
+
+	return matches[0];
+}
+
+async function reloadExtension(
+	{ extension, reloadManifest })
+{
+	const { id, name, installType, enabled } = await findExtension(extension);
+
+	if (installType !== "development") {
+		throw new Error(`${name} isn't an unpacked extension, so it can't be reloaded.`);
+	}
+
+	if (!enabled) {
+		throw new Error(`${name} is turned off in Chrome, so it can't be reloaded. Ask the user to turn it on.`);
+	}
+
+	if (reloadManifest && await askToReload(id)) {
+		return { id, name, ...await confirmFullReload(id) };
+	}
+
+		// turning an unpacked extension off and on runs its code again from disk.
+		// Chrome keeps the manifest it already read, though.
+	await chrome.management.setEnabled(id, false);
+	await chrome.management.setEnabled(id, true);
+
+	return { id, name, manifest: reloadManifest ? "unreachable" : "skipped" };
+}
+
+const Commands = {
+	reload: reloadExtension,
+};
+
+/**
+ * @returns {Promise<{ result?: any, error?: string }>}
+ */
+export async function runCommand(
+	{ name, args })
+{
+	try {
+		return { result: await Commands[name](args) };
+	} catch (error) {
+		return { error: error.message };
+	}
+}

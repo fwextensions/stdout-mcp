@@ -1,4 +1,5 @@
 import { addEntry } from "./buffer.js";
+import { notifyRegistered, registerExtension } from "./commands.js";
 import { fromJSONSafe } from "./deserialize.js";
 import { handleAlarm, handleStorageChange, restoreAgentMode, scheduleFlush, toggleAgentMode } from "./sync.js";
 
@@ -14,7 +15,16 @@ function handleMessage(
 	sender,
 	sendResponse)
 {
-	const { method, filename, args, time = Date.now(), name, loadId } = message;
+	const { type, method, filename, args, time = Date.now(), name, loadId } = message;
+
+	registerExtension(sender.id);
+
+	if (type === "register") {
+		notifyRegistered(sender);
+		sendResponse(true);
+
+		return;
+	}
 
 	senderIDs.add(sender.id);
 

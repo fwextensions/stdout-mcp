@@ -110,7 +110,7 @@ If the background process was started from an older version of the code, the nex
 
 To let `stdout` send its logs to the server, click the `stdout` icon in Chrome's toolbar.  (You may need to pin it from the Extensions menu first.)  The icon shows an **MCP** badge while agent mode is on.  The badge is green when the server has received the logs and gray while `stdout` is waiting for a server to start.
 
-While agent mode is on, `stdout` sends new log messages to the server as they arrive.  It also checks for the server once a minute, so a newly started agent session gets the stored logs within about a minute.  These checks wake the `stdout` service worker briefly but don't keep it running.
+While agent mode is on, `stdout` sends new log messages to the server as they arrive.  It also checks for the server once a minute, so a newly started agent session gets the stored logs within about a minute.  These checks wake the `stdout` service worker briefly but don't keep it running.  While an agent is using the server, and for five minutes afterward, the `stdout` service worker stays awake so it can receive commands such as reloading an extension.  This only affects `stdout`'s worker, not your extension's.
 
 Click the icon again to turn agent mode off.  The logs are still stored and shown in the `stdout` console, but nothing is sent to the server.
 
@@ -122,6 +122,7 @@ Click the icon again to turn agent mode off.  The logs are still stored and show
 | `get_logs` | Returns the most recent log messages, the messages after a cursor from a previous call, or the messages around a given one.  Can filter by level, extension, filename, a regular expression, or how recent the messages are, like `10m`. |
 | `wait_for_log` | Waits for a new log message that matches a regular expression, such as after the agent asks you to reproduce a problem. |
 | `mark` | Adds a line to the log, such as before the agent asks you to reproduce a problem, so the messages that follow are easy to find. |
+| `reload_extension` | Reloads an unpacked extension so it runs your latest code, even if its service worker failed to start.  It only works on extensions that have called `stdout()`.  With `reloadManifest`, it also reads `manifest.json` again and says whether the extension came back.  That needs `stdout()` to be called when your service worker starts, and a service worker that can start. |
 | `list_sources` | Lists the extensions and pages that have sent logs, and when `stdout` last connected. |
 
 Times are shown in your local time zone, like in the `stdout` console, and each message shows the time since the previous one, like `+251ms`.  A `loaded` line marks the first message from each page load, so you can see when a service worker restarted or a popup was reopened.  These lines need the version of `stdout-ext` that sends a page-load ID.

@@ -1,4 +1,5 @@
 import { getBufferId, getEntriesAfter } from "./buffer.js";
+import { runCommand } from "./commands.js";
 
 	// the stdout-ext-mcp server listens on this port by default
 export const ServerURL = "http://127.0.0.1:47321";
@@ -27,6 +28,7 @@ let flushTimer = null;
 let flushing = null;
 let flushAgain = false;
 let lastFailure = 0;
+let polling = false;
 
 export async function isAgentMode()
 {
@@ -140,6 +142,58 @@ export function flush()
 	return flushing;
 }
 
+async function sendCommandResult(
+	command)
+{
+	const outcome = await isAgentMode()
+		? await runCommand(command)
+		: { error: "Agent mode was turned off in the stdout extension." };
+
+	await fetch(`${ServerURL}/commands/result`, {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ id: command.id, ...outcome }),
+	});
+}
+
+/**
+ * Ask the server for commands until no agent has used it for a while.  The
+ * server holds each request until it has a command, for less than Chrome's
+ * limit on how long a fetch can take.  Checking the storage API between
+ * requests keeps the service worker awake.  If the server goes away, the
+ * next successful sync starts this again.
+ */
+async function pollCommands()
+{
+	if (polling) {
+		return;
+	}
+
+	polling = true;
+
+	try {
+		while (await isAgentMode()) {
+			const response = await fetch(`${ServerURL}/commands`, { method: "POST" });
+
+			if (!response.ok) {
+				throw new Error(`HTTP ${response.status}`);
+			}
+
+			const { commands, agentActive } = await response.json();
+
+			await Promise.all(commands.map(sendCommandResult));
+
+			if (!agentActive && !commands.length) {
+				break;
+			}
+		}
+	} catch {
+			// the alarm will start polling again once the server is back
+	} finally {
+		polling = false;
+	}
+}
+
 async function sendEntries()
 {
 	const agentMode = await isAgentMode();
@@ -150,6 +204,7 @@ async function sendEntries()
 
 	try {
 		const bufferId = await getBufferId();
+		let agentActive = false;
 
 		for (let i = 0; i < MaxBatchesPerFlush; i++) {
 				// the first request after the worker starts just asks the server what
@@ -167,7 +222,10 @@ async function sendEntries()
 				throw new Error(`HTTP ${response.status}`);
 			}
 
-			const { maxSeq } = await response.json();
+			const { maxSeq, agentActive: active } = await response.json();
+
+			agentActive = active;
+
 				// the server only accepts a batch that continues from what it already
 				// has.  if it restarted or we were out of date, it returns its actual
 				// position and we resend from there.
@@ -182,6 +240,10 @@ async function sendEntries()
 		}
 
 		await updateBadge(true, "connected");
+
+		if (agentActive) {
+			pollCommands();
+		}
 	} catch {
 			// the server isn't running, which is the normal state when no agent is
 			// using it

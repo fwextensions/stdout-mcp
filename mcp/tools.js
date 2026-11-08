@@ -18,6 +18,8 @@ import { z } from "zod";
 
 	// the extension's alarm syncs once a minute while agent mode is on
 const SyncStaleTime = 150 * 1000;
+	// long enough for the extension's alarm to fire and pick up the command
+const ReloadTimeout = 75 * 1000;
 const Instructions = `\
 Reads console output from Chrome extensions under development. The extension \
 being debugged forwards its console calls to the "stdout" helper extension, \
@@ -38,6 +40,12 @@ entry from each page load, such as a service worker restart.
 
 Before asking the user to reproduce a problem, call mark to add a line that \
 brackets the repro. Then use wait_for_log to wait for a specific message.
+
+After changing an extension's code, call reload_extension instead of asking \
+the user to reload it. Only unpacked extensions that have called stdout() can \
+be reloaded. If you changed manifest.json, pass reloadManifest and check \
+whether the result says it worked. Open tabs keep any old content scripts \
+until they're refreshed.
 
 If the tools report that the stdout extension hasn't sent anything, ask the \
 user to click the stdout extension's toolbar icon in Chrome so it shows an MCP \
@@ -204,6 +212,38 @@ function getConnectionNote(
 	return "";
 }
 
+function getReloadMessage(
+	{ id, name, manifest, version })
+{
+	const extension = `${name} (${id})`;
+
+	switch (manifest) {
+		case "reloaded":
+			return `Reloaded ${extension}, including its manifest.json. It's now version ${version}, `
+				+ "and its service worker started and called stdout().";
+
+		case "unconfirmed":
+			return `Asked ${extension} to reload, including its manifest.json. It's enabled at version `
+				+ `${version}, but its service worker didn't call stdout() again, so it may not have `
+				+ "started. Check its logs, or ask the user to look at chrome://extensions.";
+
+		case "failed":
+			throw new Error(`Asked ${extension} to reload its manifest.json, but it didn't come back. `
+				+ "The manifest may be invalid, and Chrome has turned the extension off. Once it's fixed, "
+				+ "ask the user to click the reload button on chrome://extensions.");
+
+		case "unreachable":
+			return `Reloaded the code of ${extension}, but manifest.json was not read again, because the `
+				+ "extension didn't answer. It needs the current stdout-ext library, with stdout() called "
+				+ "when a working service worker starts. If manifest.json changed, ask the user to click "
+				+ "the reload button on chrome://extensions.";
+
+		default:
+			return `Reloaded the code of ${extension}. manifest.json was not read again. If it changed, `
+				+ "call this again with `reloadManifest`.";
+	}
+}
+
 	// tell the agent when other extensions' logs are mixed in, since a noisy one
 	// can crowd out the extension it's working on
 function getMixedSourcesNote(
@@ -274,11 +314,11 @@ function validateSearch(
  * Create an MCP server whose tools read from the daemon's log store.  The
  * daemon creates one for each request, so they're cheap to make.
  *
- * @param {{ store: import("./store.js").LogStore, getStatus: () => DaemonStatus }} options
+ * @param {{ store: import("./store.js").LogStore, getStatus: () => DaemonStatus, commands: import("./commands.js").CommandQueue }} options
  * @returns {McpServer}
  */
 export function createMcpServer(
-	{ store, getStatus })
+	{ store, getStatus, commands })
 {
 	const server = new McpServer(
 		{ name: "stdout-ext", version: "0.1.0" },
@@ -405,6 +445,54 @@ export function createMcpServer(
 					`Added this line:\n${formatEntries([mark])}`,
 					`cursor: ${mark.seq} (pass as \`after\` to get the entries logged since the mark)`,
 					getConnectionNote(mark)
+				);
+			} catch (error) {
+				return errorResult(error);
+			}
+		}
+	);
+
+	server.registerTool(
+		"reload_extension",
+		{
+			title: "Reload an extension",
+			description: "Reload an unpacked Chrome extension so it picks up changes to its code. Pass "
+				+ "`reloadManifest` if manifest.json changed too, and the result will say whether that "
+				+ "looks like it worked. Only extensions that have called stdout() can be reloaded. "
+				+ "Returns a cursor to pass as `after` to get the entries logged since the reload.",
+			inputSchema: z.object({
+				extension: z.string()
+					.describe("The extension to reload, by ID or exact name."),
+				reloadManifest: z.boolean().optional()
+					.describe("Also read manifest.json again. Needs the current stdout-ext library, with "
+						+ "stdout() called when the service worker starts. Defaults to false."),
+			}),
+		},
+		async ({ extension, reloadManifest }, ctx) => {
+			try {
+				const cursor = getStatus().maxSeq;
+				const { promise, cancel } = commands.send("reload", { extension, reloadManifest }, ReloadTimeout);
+
+				ctx.mcpReq.signal.addEventListener("abort", cancel);
+
+				const { result, error, timedOut, cancelled } = await promise;
+
+				if (timedOut) {
+					throw new Error(`The stdout extension didn't respond within ${ReloadTimeout / 1000} seconds. `
+						+ (getConnectionNote(getStatus()) || "Chrome may be busy, so try again."));
+				}
+
+				if (cancelled) {
+					throw new Error("The reload was cancelled.");
+				}
+
+				if (error) {
+					throw new Error(error);
+				}
+
+				return textResult(
+					getReloadMessage(result),
+					`cursor: ${cursor} (pass as \`after\` to get the entries logged since the reload)`
 				);
 			} catch (error) {
 				return errorResult(error);
