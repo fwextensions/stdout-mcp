@@ -16,10 +16,13 @@ import { z } from "zod";
  * @property {number} entryCount
  */
 
-	// the extension's alarm syncs once a minute while agent mode is on
-const SyncStaleTime = 150 * 1000;
+	// the extension's alarm syncs every 30 seconds while agent mode is on
+const SyncStaleTime = 90 * 1000;
+	// a daemon that's been running this long without hearing from the extension
+	// would have by now if agent mode were on
+const FirstCheckInTime = 35 * 1000;
 	// long enough for the extension's alarm to fire and pick up the command
-const ReloadTimeout = 75 * 1000;
+const ReloadTimeout = 40 * 1000;
 const Instructions = `\
 Reads console output from Chrome extensions under development. The extension \
 being debugged forwards its console calls to the "stdout" helper extension, \
@@ -200,7 +203,7 @@ function getConnectionNote(
 {
 	if (!lastIngestAt) {
 		return `Note: the stdout extension hasn't sent anything since the log server started ${formatAge(startedAt)}. `
-			+ "If agent mode is on (the stdout toolbar icon in Chrome shows an MCP badge), its stored logs will arrive within about a minute. "
+			+ "If agent mode is on (the stdout toolbar icon in Chrome shows an MCP badge), its stored logs will arrive within about 30 seconds. "
 			+ "Otherwise, ask the user to click the stdout toolbar icon to turn on agent mode.";
 	}
 
@@ -210,6 +213,14 @@ function getConnectionNote(
 	}
 
 	return "";
+}
+
+function isExtensionDisconnected(
+	{ lastIngestAt, startedAt })
+{
+	return lastIngestAt
+		? Date.now() - lastIngestAt > SyncStaleTime
+		: Date.now() - startedAt > FirstCheckInTime;
 }
 
 function getReloadMessage(
@@ -470,6 +481,13 @@ export function createMcpServer(
 		},
 		async ({ extension, reloadManifest }, ctx) => {
 			try {
+				const status = getStatus();
+
+					// don't make the agent wait for an answer that won't come
+				if (isExtensionDisconnected(status)) {
+					throw new Error(`Can't reload ${extension} right now. ${getConnectionNote(status)}`);
+				}
+
 					// the extension finishes sending its backlog before it picks up a
 					// command, which matters when the daemon has just started and has
 					// no logs yet

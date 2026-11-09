@@ -5,10 +5,14 @@ import { runCommand } from "./commands.js";
 export const ServerURL = "http://127.0.0.1:47321";
 
 const AlarmName = "stdout-sync";
-	// alarms wake the service worker briefly to send any logs the server doesn't
-	// have yet, such as after a new agent session starts the server.  they don't
-	// keep the worker alive in between.
-const AlarmPeriodMinutes = 1;
+	// alarms wake the service worker to send any logs the server doesn't have yet,
+	// such as after a new agent session starts the server.  30 seconds is the
+	// shortest period Chrome allows.
+const AlarmPeriodMinutes = 0.5;
+	// right after agent mode is turned on or Chrome starts, an agent session is
+	// likely to start soon, so check for the server more often than the alarm
+const FastRetryDelay = 5 * 1000;
+const FastRetryDuration = 3 * 60 * 1000;
 const FlushDelay = 250;
 const BatchSize = 500;
 const MaxBatchesPerFlush = 50;
@@ -29,6 +33,7 @@ let flushing = null;
 let flushAgain = false;
 let lastFailure = 0;
 let polling = false;
+let retrying = false;
 
 export async function isAgentMode()
 {
@@ -78,7 +83,7 @@ export async function handleStorageChange(
 		await chrome.alarms.create(AlarmName, { periodInMinutes: AlarmPeriodMinutes });
 		await updateBadge(true);
 		lastFailure = 0;
-		flush();
+		retryUntilConnected();
 	} else {
 		await chrome.alarms.clear(AlarmName);
 		await updateBadge(false);
@@ -94,11 +99,16 @@ export async function restoreAgentMode()
 {
 	const agentMode = await isAgentMode();
 
-	if (agentMode && !(await chrome.alarms.get(AlarmName))) {
+	if (agentMode) {
+			// this replaces any existing alarm, which may have an older period
 		await chrome.alarms.create(AlarmName, { periodInMinutes: AlarmPeriodMinutes });
 	}
 
 	await updateBadge(agentMode);
+
+	if (agentMode) {
+		retryUntilConnected();
+	}
 }
 
 export function handleAlarm(
@@ -157,11 +167,11 @@ async function sendCommandResult(
 }
 
 /**
- * Ask the server for commands until no agent has used it for a while.  The
- * server holds each request until it has a command, for less than Chrome's
- * limit on how long a fetch can take.  Checking the storage API between
- * requests keeps the service worker awake.  If the server goes away, the
- * next successful sync starts this again.
+ * Ask the server for commands for as long as it's running.  The server holds
+ * each request until it has a command, for less than Chrome's limit on how long
+ * a fetch can take.  Checking the storage API between requests keeps the service
+ * worker awake.  If the server goes away, the next successful sync starts this
+ * again.
  */
 async function pollCommands()
 {
@@ -179,18 +189,45 @@ async function pollCommands()
 				throw new Error(`HTTP ${response.status}`);
 			}
 
-			const { commands, agentActive } = await response.json();
+			const { commands } = await response.json();
 
 			await Promise.all(commands.map(sendCommandResult));
-
-			if (!agentActive && !commands.length) {
-				break;
-			}
 		}
 	} catch {
 			// the alarm will start polling again once the server is back
 	} finally {
 		polling = false;
+	}
+}
+
+/**
+ * Check for the server every few seconds for a little while, until it's found.
+ * Each check calls the storage API, which keeps the service worker awake
+ * between them.
+ */
+async function retryUntilConnected()
+{
+	if (retrying) {
+		return;
+	}
+
+	retrying = true;
+
+	const deadline = Date.now() + FastRetryDuration;
+
+	try {
+		while (Date.now() < deadline && await isAgentMode()) {
+			await flush();
+
+				// a failed sync clears this
+			if (serverSeq !== null) {
+				break;
+			}
+
+			await new Promise((resolve) => setTimeout(resolve, FastRetryDelay));
+		}
+	} finally {
+		retrying = false;
 	}
 }
 
@@ -204,7 +241,6 @@ async function sendEntries()
 
 	try {
 		const bufferId = await getBufferId();
-		let agentActive = false;
 
 		for (let i = 0; i < MaxBatchesPerFlush; i++) {
 				// the first request after the worker starts just asks the server what
@@ -222,10 +258,7 @@ async function sendEntries()
 				throw new Error(`HTTP ${response.status}`);
 			}
 
-			const { maxSeq, agentActive: active } = await response.json();
-
-			agentActive = active;
-
+			const { maxSeq } = await response.json();
 				// the server only accepts a batch that continues from what it already
 				// has.  if it restarted or we were out of date, it returns its actual
 				// position and we resend from there.
@@ -241,9 +274,7 @@ async function sendEntries()
 
 		await updateBadge(true, "connected");
 
-		if (agentActive) {
-			pollCommands();
-		}
+		pollCommands();
 	} catch {
 			// the server isn't running, which is the normal state when no agent is
 			// using it

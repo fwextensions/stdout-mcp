@@ -13,6 +13,15 @@ let cancelCount = 0;
 const store = {
 	wait: () => ({ promise: new Promise(() => {}), cancel: () => cancelCount++ }),
 };
+let status = {};
+let sendCount = 0;
+const commands = {
+	send: () => {
+		sendCount++;
+
+		return { promise: Promise.resolve({ result: { id: "a", name: "A", manifest: "skipped" } }), cancel() {} };
+	},
+};
 let server;
 
 async function connect(
@@ -36,7 +45,7 @@ async function waitForCancel(
 }
 
 before(async () => {
-	const handle = toNodeHandler(createMcpHandler(() => createMcpServer({ store, getStatus: () => ({}) })));
+	const handle = toNodeHandler(createMcpHandler(() => createMcpServer({ store, getStatus: () => status, commands })));
 
 	server = createServer((req, res) => handle(req, res)).listen(0, "127.0.0.1");
 	await once(server, "listening");
@@ -71,3 +80,42 @@ for (const [era, versionNegotiation] of [["2026-07-28", Modern], ["2025", undefi
 		await waitForCancel(count + 1);
 	});
 }
+
+async function reload(
+	newStatus)
+{
+	const count = sendCount;
+	const client = await connect(Modern);
+
+	status = newStatus;
+
+	const result = await client.callTool({ name: "reload_extension", arguments: { extension: "A" } });
+
+	await client.close();
+
+	return { queued: sendCount > count, isError: result.isError, text: result.content[0].text };
+}
+
+test("doesn't wait on an extension that never checked in", async () => {
+	const { queued, isError, text } = await reload({ startedAt: Date.now() - 60 * 1000, lastIngestAt: 0 });
+
+	assert.equal(queued, false);
+	assert.equal(isError, true);
+	assert.match(text, /Can't reload A right now.*ask the user to click the stdout toolbar icon/s);
+});
+
+test("doesn't wait on an extension that stopped checking in", async () => {
+	const { queued, isError, text } = await reload({ startedAt: 1, lastIngestAt: Date.now() - 5 * 60 * 1000 });
+
+	assert.equal(queued, false);
+	assert.equal(isError, true);
+	assert.match(text, /last checked in/);
+});
+
+test("waits on an extension that hasn't had time to check in yet", async () => {
+	assert.equal((await reload({ startedAt: Date.now() - 5 * 1000, lastIngestAt: 0 })).queued, true);
+});
+
+test("reloads when the extension checked in recently", async () => {
+	assert.equal((await reload({ startedAt: 1, lastIngestAt: Date.now() - 1000 })).queued, true);
+});

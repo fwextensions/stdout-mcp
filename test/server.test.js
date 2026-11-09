@@ -114,7 +114,7 @@ test("only accepts entries from the stdout extension", async () => {
 test("returns ingested logs with a cursor", async () => {
 	let response = await ingest({ afterSeq: null, entries: [] });
 
-	assert.deepEqual(await response.json(), { maxSeq: 0, agentActive: true });
+	assert.deepEqual(await response.json(), { maxSeq: 0 });
 	response = await ingest({
 		afterSeq: 0,
 		entries: [
@@ -122,7 +122,7 @@ test("returns ingested logs with a cursor", async () => {
 			entry(2, ["request failed", { __type: "Error", name: "TypeError", message: "boom", stack: "TypeError: boom\n    at foo (sw.js:1:1)" }], "error"),
 		],
 	});
-	assert.deepEqual(await response.json(), { maxSeq: 2, agentActive: true });
+	assert.deepEqual(await response.json(), { maxSeq: 2 });
 
 	const text = await callTool("get_logs");
 
@@ -213,9 +213,8 @@ async function answerReload(
 	reloadManifest)
 {
 	const call = callTool("reload_extension", { extension: "Test Extension", reloadManifest });
-	const { commands, agentActive } = await postCommands("/commands").then((response) => response.json());
+	const { commands } = await postCommands("/commands").then((response) => response.json());
 
-	assert.equal(agentActive, true);
 	assert.deepEqual(
 		commands.map(({ name, args }) => ({ name, args })),
 		[{ name: "reload", args: { extension: "Test Extension", ...(reloadManifest && { reloadManifest }) } }]

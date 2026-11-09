@@ -103,14 +103,14 @@ Or add it to the project's `.mcp.json`:
 
 The agent starts the server when it needs it.  The server starts a small background process on port 47321 that holds the logs, runs the tools, and is shared by all agent sessions.  Each session's server only passes messages to it.  The background process exits after two hours without use.  See [docs/architecture.html](docs/architecture.html) for how these pieces fit together.
 
-If the background process was started from an older version of the code, the next agent session to start replaces it.  Sessions that are already open then use the new one.  The `stdout` extension then resends its stored logs within about a minute.
+If the background process was started from an older version of the code, the next agent session to start replaces it.  Sessions that are already open then use the new one.  The `stdout` extension then resends its stored logs within about 30 seconds.
 
 
 ### Agent mode
 
 To let `stdout` send its logs to the server, click the `stdout` icon in Chrome's toolbar.  (You may need to pin it from the Extensions menu first.)  The icon shows an **MCP** badge while agent mode is on.  The badge is green when the server has received the logs and gray while `stdout` is waiting for a server to start.
 
-While agent mode is on, `stdout` sends new log messages to the server as they arrive.  It also checks for the server once a minute, so a newly started agent session gets the stored logs within about a minute.  These checks wake the `stdout` service worker briefly but don't keep it running.  While an agent is using the server, and for five minutes afterward, the `stdout` service worker stays awake so it can receive commands such as reloading an extension.  This only affects `stdout`'s worker, not your extension's.
+While agent mode is on, `stdout` sends new log messages to the server as they arrive.  It also checks for the server every 30 seconds, or every 5 seconds for the first three minutes after you turn on agent mode or start Chrome, so a newly started agent session gets the stored logs quickly.  While the server is running, the `stdout` service worker stays awake so it can receive commands such as reloading an extension.  This only affects `stdout`'s worker, not your extension's.
 
 Click the icon again to turn agent mode off.  The logs are still stored and shown in the `stdout` console, but nothing is sent to the server.
 

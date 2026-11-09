@@ -15,9 +15,6 @@ const MaxBodySize = 16 * 1024 * 1024;
 const Handled = Symbol("handled");
 	// Chrome shuts down a service worker whose fetch takes more than 30 seconds
 const CommandPollTime = 25 * 1000;
-	// how long after an agent's last request the extension keeps polling for
-	// commands, which keeps its service worker awake
-const AgentActiveTime = 5 * 60 * 1000;
 const ExtensionRoutes = new Set(["/ingest", "/commands", "/commands/result"]);
 
 const store = new LogStore();
@@ -27,7 +24,6 @@ const codeVersion = getCodeVersion();
 const startedAt = Date.now();
 const allowedHosts = new Set([`127.0.0.1:${Port}`, `localhost:${Port}`]);
 let lastActivity = Date.now();
-let lastAgentRequest = 0;
 let activeRequests = 0;
 
 class HTTPError extends Error
@@ -88,18 +84,13 @@ function getStatus()
 	// sessions.  requests from 2025-era clients are served the same way.
 const handleMCP = toNodeHandler(createMcpHandler(() => createMcpServer({ store, getStatus, commands })));
 
-function isAgentActive()
-{
-	return activeRequests > 0 || Date.now() - lastAgentRequest < AgentActiveTime;
-}
-
 async function handleExtensionRequest(
 	url,
 	req,
 	res)
 {
 	if (url === "/ingest") {
-		return { ...store.ingest(await readJSON(req)), agentActive: isAgentActive() };
+		return store.ingest(await readJSON(req));
 	}
 
 	if (url === "/commands") {
@@ -107,7 +98,7 @@ async function handleExtensionRequest(
 
 		res.on("close", cancel);
 
-		return { commands: await promise, agentActive: isAgentActive() };
+		return { commands: await promise };
 	}
 
 	const { id, result, error } = await readJSON(req);
@@ -157,7 +148,7 @@ async function route(
 		activeRequests++;
 		res.on("close", () => {
 			activeRequests--;
-			lastActivity = lastAgentRequest = Date.now();
+			lastActivity = Date.now();
 		});
 		await handleMCP(req, res);
 

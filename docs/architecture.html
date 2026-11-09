@@ -365,7 +365,7 @@
 							<td>stdout extension</td>
 							<td>One in Chrome</td>
 							<td>While Chrome runs</td>
-							<td>Stores console calls from your extensions. In agent mode, sends them to the daemon as they arrive and checks for the daemon once a minute.</td>
+							<td>Stores console calls from your extensions. In agent mode, sends them to the daemon as they arrive and checks for the daemon every 30 seconds.</td>
 						</tr>
 						<tr>
 							<td>Daemon</td>
@@ -393,8 +393,8 @@
 				<li><div>The daemon creates an MCP server for this one request, runs the tool against its log store, and returns the result.</div></li>
 				<li><div>The relay writes the response to its stdout, where the agent reads it.</div></li>
 			</ol>
-			<p class="note">Separately, the stdout extension posts to <code>/ingest</code> whenever new logs arrive and once a minute. That's what turns its MCP badge green. It never talks to a relay.</p>
-			<p class="note">The daemon can't start a conversation with the extension, so commands like <code>reload_extension</code> wait in a queue. While an agent is active, each <code>/ingest</code> response says so, and the stdout extension's service worker holds a <code>POST /commands</code> request open for up to 25 seconds at a time. That keeps only its own worker awake, and it stops five minutes after the agent's last request.</p>
+			<p class="note">Separately, the stdout extension posts to <code>/ingest</code> whenever new logs arrive and every 30 seconds, or every 5 seconds for three minutes after agent mode is turned on or Chrome starts. That's what turns its MCP badge green. It never talks to a relay.</p>
+			<p class="note">The daemon can't start a conversation with the extension, so commands like <code>reload_extension</code> wait in a queue. While the daemon is running and agent mode is on, the stdout extension's service worker holds a <code>POST /commands</code> request open for up to 25 seconds at a time. That keeps only its own worker awake, and it stops when the daemon exits.</p>
 		</section>
 
 		<section>

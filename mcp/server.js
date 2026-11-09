@@ -71,7 +71,7 @@ async function ensureDaemon(
 
 	if (checkVersion && health && health.codeVersion !== getCodeVersion()) {
 			// the daemon was started from older code.  replacing it loses the logs it
-			// holds, but the extension resends them within about a minute.
+			// holds, but the extension resends them within about 30 seconds.
 		try {
 			process.kill(health.pid);
 		} catch {
