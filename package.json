@@ -1,5 +1,5 @@
 {
-  "name": "stdout-ext",
+  "name": "stdout-mcp",
   "version": "0.1.0",
   "description": "A simple Chrome extension for console-logging *other* Chrome extensions",
   "keywords": [
@@ -14,12 +14,12 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/fwextensions/stdout-ext.git"
+    "url": "git+https://github.com/fwextensions/stdout-mcp.git"
   },
   "bugs": {
-    "url": "https://github.com/fwextensions/stdout-ext/issues"
+    "url": "https://github.com/fwextensions/stdout-mcp/issues"
   },
-  "homepage": "https://github.com/fwextensions/stdout-ext#readme",
+  "homepage": "https://github.com/fwextensions/stdout-mcp#readme",
   "type": "module",
   "files": [
     "lib/stdout.js",
@@ -40,7 +40,7 @@
     "prepublishOnly": "npm run typecheck"
   },
   "bin": {
-    "stdout-ext-mcp": "mcp/server.js"
+    "stdout-mcp": "mcp/server.js"
   },
   "engines": {
     "node": ">=20"

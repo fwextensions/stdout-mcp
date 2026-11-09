@@ -1,7 +1,7 @@
 import { getBufferId, getEntriesAfter } from "./buffer.js";
 import { runCommand } from "./commands.js";
 
-	// the stdout-ext-mcp server listens on this port by default
+	// the stdout-mcp server listens on this port by default
 export const ServerURL = "http://127.0.0.1:47321";
 
 const AlarmName = "stdout-sync";
@@ -56,7 +56,7 @@ async function updateBadge(
 				? "stdout: click to let coding agents read the logs"
 				: status === "connected"
 					? "stdout: agents can read the logs (click to stop)"
-					: "stdout: waiting for the stdout-ext-mcp server (click to stop)"
+					: "stdout: waiting for the stdout-mcp server (click to stop)"
 		}),
 	]);
 }

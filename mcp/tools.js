@@ -245,7 +245,7 @@ function getReloadMessage(
 
 		case "unreachable":
 			return `Reloaded the code of ${extension}, but manifest.json was not read again, because the `
-				+ "extension didn't answer. It needs the current stdout-ext library, with stdout() called "
+				+ "extension didn't answer. It needs the current stdout-mcp library, with stdout() called "
 				+ "when a working service worker starts. If manifest.json changed, ask the user to click "
 				+ "the reload button on chrome://extensions.";
 
@@ -332,7 +332,7 @@ export function createMcpServer(
 	{ store, getStatus, commands })
 {
 	const server = new McpServer(
-		{ name: "stdout-ext", version: "0.1.0" },
+		{ name: "stdout-mcp", version: "0.1.0" },
 		{ instructions: Instructions }
 	);
 
@@ -340,7 +340,7 @@ export function createMcpServer(
 		"get_logs",
 		{
 			title: "Get extension logs",
-			description: "Get console output from Chrome extensions that use the stdout-ext library, "
+			description: "Get console output from Chrome extensions that use the stdout-mcp library, "
 				+ "including output from before this session started. Without `after`, returns the most "
 				+ "recent matching entries. With `after`, returns the entries following that cursor, "
 				+ "oldest first. With `around`, returns the entries before and after that one.",
@@ -475,7 +475,7 @@ export function createMcpServer(
 				extension: z.string()
 					.describe("The extension to reload, by ID or exact name."),
 				reloadManifest: z.boolean().optional()
-					.describe("Also read manifest.json again. Needs the current stdout-ext library, with "
+					.describe("Also read manifest.json again. Needs the current stdout-mcp library, with "
 						+ "stdout() called when the service worker starts. Defaults to false."),
 			}),
 		},

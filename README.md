@@ -1,6 +1,6 @@
 ![icon](./extension/img/icon-128.png)
 
-# stdout-ext
+# stdout-mcp
 
 > A simple Chrome extension for console-logging *other* Chrome extensions
 
@@ -9,16 +9,16 @@
 
 Seeing console log output can be crucial for debugging Chrome extensions, especially when they use a manifest V3 service worker to respond to user-generated events, like a tab opening, the focus changing, etc.  Sure, you can inspect the service worker console, but leaving that devtools window open keeps the service worker active.  So you'll never see your extension go through the transition from active to inactive and back again &mdash; which is often where bugs sneak in.
 
-`stdout-ext` provides an easy way to send console output from your service worker or other extension pages *without* keeping your background scripts active.
+`stdout-mcp` provides an easy way to send console output from your service worker or other extension pages *without* keeping your background scripts active.
 
 
 ## Installation
 
 ```shell
-npm install --save-dev stdout-ext
+npm install --save-dev stdout-mcp
 ```
 
-After installing the package, you'll need to add the unpacked `stdout` extension to Chrome.  To do so, drag the `extension` folder from `node_modules/stdout-ext/` into the Extensions window in Chrome (`chrome://extensions`).
+After installing the package, you'll need to add the unpacked `stdout` extension to Chrome.  To do so, drag the `extension` folder from `node_modules/stdout-mcp/` into the Extensions window in Chrome (`chrome://extensions`).
 
 Once `stdout` is running, click its <u>service worker</u> link to open the devtools window.  This is where any console output from your extension will be displayed.
 
@@ -31,7 +31,7 @@ To send logs from your extension, import `stdout()` from the package and call it
 
 ```js
 // service-worker.js
-import stdout, { STDOUT_ID } from "stdout-ext";
+import stdout, { STDOUT_ID } from "stdout-mcp";
 
 stdout(STDOUT_ID);
 console.log("my important message", { hello: "world" });
@@ -75,7 +75,7 @@ stdout({ id: "...", filename: "toolbar" });
 
 ## Reading logs from a coding agent
 
-The package includes an [MCP](https://modelcontextprotocol.io) server, `stdout-ext-mcp`, that lets a coding agent like Claude Code read your extension's console output.  It needs no other changes to your extension.
+The package includes an [MCP](https://modelcontextprotocol.io) server, `stdout-mcp`, that lets a coding agent like Claude Code read your extension's console output.  It needs no other changes to your extension.
 
 The `stdout` extension stores the last 10,000 log messages it receives, whether or not an agent is connected.  So when you notice something going wrong and start an agent session, the agent can see what was logged beforehand.
 
@@ -85,7 +85,7 @@ The `stdout` extension stores the last 10,000 log messages it receives, whether 
 Add the server to your agent's MCP configuration.  For Claude Code, run this in your extension's project:
 
 ```shell
-claude mcp add stdout -- npx stdout-ext-mcp
+claude mcp add stdout -- npx stdout-mcp
 ```
 
 Or add it to the project's `.mcp.json`:
@@ -95,7 +95,7 @@ Or add it to the project's `.mcp.json`:
   "mcpServers": {
     "stdout": {
       "command": "npx",
-      "args": ["stdout-ext-mcp"]
+      "args": ["stdout-mcp"]
     }
   }
 }
@@ -125,7 +125,7 @@ Click the icon again to turn agent mode off.  The logs are still stored and show
 | `reload_extension` | Reloads an unpacked extension so it runs your latest code, even if its service worker failed to start.  It only works on extensions that have called `stdout()`.  With `reloadManifest`, it also reads `manifest.json` again and says whether the extension came back.  That needs `stdout()` to be called when your service worker starts, and a service worker that can start. |
 | `list_sources` | Lists the extensions and pages that have sent logs, and when `stdout` last connected. |
 
-Times are shown in your local time zone, like in the `stdout` console, and each message shows the time since the previous one, like `+251ms`.  A `loaded` line marks the first message from each page load, so you can see when a service worker restarted or a popup was reopened.  These lines need the version of `stdout-ext` that sends a page-load ID.
+Times are shown in your local time zone, like in the `stdout` console, and each message shows the time since the previous one, like `+251ms`.  A `loaded` line marks the first message from each page load, so you can see when a service worker restarted or a popup was reopened.  These lines need the version of `stdout-mcp` that sends a page-load ID.
 
 
 ## License

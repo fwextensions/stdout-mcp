@@ -261,7 +261,7 @@
 <body>
 	<main>
 		<header style="display:grid;gap:0.6rem">
-			<div class="eyebrow">stdout-ext · mcp/</div>
+			<div class="eyebrow">stdout-mcp · mcp/</div>
 			<h1>stdout MCP Architecture</h1>
 			<p class="lede">How console output gets from your extension to a coding agent, which process does what, and why the agent talks stdio to a relay instead of HTTP to the daemon.</p>
 		</header>
@@ -291,7 +291,7 @@
 						<!-- chrome -->
 						<rect class="d-box" x="25" y="50" width="180" height="66" rx="6"/>
 						<text class="d-title" x="37" y="74">Your extension</text>
-						<text class="d-text" x="37" y="94">stdout-ext library</text>
+						<text class="d-text" x="37" y="94">stdout-mcp library</text>
 						<text class="d-text" x="37" y="108">wraps console.*</text>
 
 						<rect class="d-box" x="25" y="196" width="180" height="96" rx="6"/>
@@ -315,7 +315,7 @@
 						<rect class="d-box" x="565" y="56" width="140" height="66" rx="6"/>
 						<text class="d-title" x="577" y="80">Relay</text>
 						<text class="d-text" x="577" y="98">mcp/server.js</text>
-						<text class="d-text" x="577" y="112">stdout-ext-mcp</text>
+						<text class="d-text" x="577" y="112">stdout-mcp</text>
 
 						<rect class="d-box" x="750" y="56" width="140" height="66" rx="6"/>
 						<text class="d-title" x="762" y="80">Agent</text>
@@ -325,7 +325,7 @@
 						<rect class="d-box" x="565" y="226" width="140" height="66" rx="6"/>
 						<text class="d-title" x="577" y="250">Relay</text>
 						<text class="d-text" x="577" y="268">mcp/server.js</text>
-						<text class="d-text" x="577" y="282">stdout-ext-mcp</text>
+						<text class="d-text" x="577" y="282">stdout-mcp</text>
 
 						<rect class="d-box" x="750" y="226" width="140" height="66" rx="6"/>
 						<text class="d-title" x="762" y="250">Agent</text>
@@ -420,7 +420,7 @@
 						<tr><td>Restarts it after the 2-hour idle exit</td><td class="yes">Yes</td><td class="no">No</td></tr>
 						<tr><td>Replaces a daemon running older code</td><td class="yes">Yes</td><td class="no">No</td></tr>
 						<tr><td>Works in MCP clients that only support stdio</td><td class="yes">Yes</td><td class="no">No</td></tr>
-						<tr><td>Same setup in every project</td><td class="yes">npx stdout-ext-mcp</td><td class="no">Start the daemon yourself</td></tr>
+						<tr><td>Same setup in every project</td><td class="yes">npx stdout-mcp</td><td class="no">Start the daemon yourself</td></tr>
 						<tr><td>Extra process per session</td><td class="no">One small Node process</td><td class="yes">None</td></tr>
 					</tbody>
 				</table>
