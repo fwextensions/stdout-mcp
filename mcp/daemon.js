@@ -4,18 +4,19 @@ import { randomUUID } from "node:crypto";
 import { createMcpHandler } from "@modelcontextprotocol/server";
 import { toNodeHandler } from "@modelcontextprotocol/node";
 import { CommandQueue } from "./commands.js";
+import { LinkRoutes } from "../extension/link.js";
 import { ExtensionOrigin, IdleTimeout, Port } from "./constants.js";
 import { LogStore } from "./store.js";
 import { createMcpServer } from "./tools.js";
 import { getCodeVersion } from "./version.js";
 
-	// the stdout extension sends up to 500 entries per request
+	// each request from the stdout extension holds up to BatchSize entries
 const MaxBodySize = 16 * 1024 * 1024;
 	// returned by route() when it has already sent the response
 const Handled = Symbol("handled");
 	// Chrome shuts down a service worker whose fetch takes more than 30 seconds
 const CommandPollTime = 25 * 1000;
-const ExtensionRoutes = new Set(["/ingest", "/commands", "/commands/result"]);
+const ExtensionRoutes = new Set(Object.values(LinkRoutes));
 
 const store = new LogStore();
 const commands = new CommandQueue();
@@ -75,6 +76,7 @@ function getStatus()
 		codeVersion,
 		startedAt,
 		lastIngestAt: store.lastIngestAt,
+		extensionLinkVersion: store.extensionLinkVersion,
 		maxSeq: store.maxSeq,
 		entryCount: store.entries.length,
 	};
@@ -89,11 +91,11 @@ async function handleExtensionRequest(
 	req,
 	res)
 {
-	if (url === "/ingest") {
+	if (url === LinkRoutes.Ingest) {
 		return store.ingest(await readJSON(req));
 	}
 
-	if (url === "/commands") {
+	if (url === LinkRoutes.Commands) {
 		const { promise, cancel } = commands.poll(CommandPollTime);
 
 		res.on("close", cancel);

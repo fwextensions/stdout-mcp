@@ -3,22 +3,48 @@ import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import { Client } from "@modelcontextprotocol/client";
+import { createExtensionLink, LinkRoutes, LinkVersion } from "../extension/link.js";
 import { STDOUT_ID } from "../lib/stdout.js";
 
 const port = 40000 + Math.floor(Math.random() * 10000);
 const baseURL = `http://127.0.0.1:${port}`;
 const extensionOrigin = `chrome-extension://${STDOUT_ID}`;
+const bufferId = "test";
+	// the real extension's half of the conversation, with the origin Chrome adds
+const link = createExtensionLink({
+	baseURL,
+	fetch: (url, init) => fetch(url, { ...init, headers: { ...init.headers, Origin: extensionOrigin } }),
+});
+const buffer = [];
+let syncPosition = null;
 let client;
 let legacyClient;
 
-function ingest(
+const getEntriesAfter = async (position, limit) => buffer.filter(({ seq }) => seq > position).slice(0, limit);
+
+function addToBuffer(
+	entries)
+{
+	buffer.push(...entries.map((item) => ({ ...item, seq: buffer.length + entries.indexOf(item) + 1 })));
+}
+
+async function send(
+	...entries)
+{
+	addToBuffer(entries);
+	syncPosition = await link.catchUp({ bufferId, syncPosition, getEntriesAfter });
+}
+
+	// for requests the real extension would never make
+function post(
+	path,
 	body,
 	origin = extensionOrigin)
 {
-	return fetch(`${baseURL}/ingest`, {
+	return fetch(`${baseURL}${path}`, {
 		method: "POST",
 		headers: { "Content-Type": "application/json", Origin: origin },
-		body: JSON.stringify({ bufferId: "test", ...body }),
+		body: JSON.stringify(body ?? {}),
 	});
 }
 
@@ -31,8 +57,7 @@ async function callTool(
 	return result.content[0].text;
 }
 
-const entry = (seq, args, method = "log", extra = {}) => ({
-	seq,
+const entry = (args, method = "log", extra = {}) => ({
 	time: Date.now(),
 	extensionId: "abcdefghijklmnopabcdefghijklmnop",
 	extensionName: "Test Extension",
@@ -84,7 +109,7 @@ test("serves clients using the 2025 protocol", async () => {
 
 	assert.equal(legacyClient.getNegotiatedProtocolVersion(), "2025-11-25");
 	assert.equal(tools.length, 5);
-	assert.match(result.content[0].text, /Log server started/);
+	assert.match(result.content[0].text, /MCP server started/);
 });
 
 test("starts the daemon and reports that the extension hasn't connected", async () => {
@@ -95,8 +120,10 @@ test("starts the daemon and reports that the extension hasn't connected", async 
 });
 
 test("only accepts entries from the stdout extension", async () => {
-	assert.equal((await ingest({ afterSeq: 0, entries: [] }, "chrome-extension://someoneelse")).status, 403);
-	assert.equal((await ingest({ afterSeq: 0, entries: [] }, "https://example.com")).status, 403);
+	const batch = { bufferId, syncPosition: 0, entries: [] };
+
+	assert.equal((await post(LinkRoutes.Ingest, batch, "chrome-extension://someoneelse")).status, 403);
+	assert.equal((await post(LinkRoutes.Ingest, batch, "https://example.com")).status, 403);
 	assert.equal((await fetch(`${baseURL}/health`, { headers: { Origin: "https://example.com" } })).status, 403);
 
 		// fetch() won't let us change the Host header, which is what a DNS rebinding
@@ -112,17 +139,14 @@ test("only accepts entries from the stdout extension", async () => {
 });
 
 test("returns ingested logs with a cursor", async () => {
-	let response = await ingest({ afterSeq: null, entries: [] });
+	await send();
+	assert.equal(syncPosition, 0);
 
-	assert.deepEqual(await response.json(), { maxSeq: 0 });
-	response = await ingest({
-		afterSeq: 0,
-		entries: [
-			entry(1, ["%s started", "worker"]),
-			entry(2, ["request failed", { __type: "Error", name: "TypeError", message: "boom", stack: "TypeError: boom\n    at foo (sw.js:1:1)" }], "error"),
-		],
-	});
-	assert.deepEqual(await response.json(), { maxSeq: 2 });
+	await send(
+		entry(["%s started", "worker"]),
+		entry(["request failed", { __type: "Error", name: "TypeError", message: "boom", stack: "TypeError: boom\n    at foo (sw.js:1:1)" }], "error"),
+	);
+	assert.equal(syncPosition, 2);
 
 	const text = await callTool("get_logs");
 
@@ -139,7 +163,7 @@ test("waits for a new matching log", async () => {
 	const waiting = callTool("wait_for_log", { pattern: "ready$", timeoutSeconds: 10 });
 
 	await new Promise((resolve) => setTimeout(resolve, 200));
-	await ingest({ afterSeq: 2, entries: [entry(3, ["not ready yet!"]), entry(4, ["now ready"])] });
+	await send(entry(["not ready yet!"]), entry(["now ready"]));
 
 	const text = await waiting;
 
@@ -165,13 +189,10 @@ test("marks the log and shows page loads and time deltas", async () => {
 
 	assert.match(marked, /Added this line:\n--- .* ---\n#5 \S+ --- mark: repro start ---/);
 	assert.match(marked, /cursor: 5/);
-	await ingest({
-		afterSeq: 4,
-		entries: [
-			{ ...entry(5, ["first"], "log", { loadId: "load1" }), time },
-			{ ...entry(6, ["second"], "log", { loadId: "load1" }), time: time + 1500 },
-		],
-	});
+	await send(
+		{ ...entry(["first"], "log", { loadId: "load1" }), time },
+		{ ...entry(["second"], "log", { loadId: "load1" }), time: time + 1500 },
+	);
 
 	const text = await callTool("get_logs", { after: 5 });
 
@@ -184,10 +205,7 @@ test("marks the log and shows page loads and time deltas", async () => {
 });
 
 test("says when logs come from more than one extension", async () => {
-	await ingest({
-		afterSeq: 6,
-		entries: [entry(7, ["from another extension"], "log", { extensionId: "ponmlkjihgfedcbaponmlkjihgfedcba", extensionName: "Other Extension" })],
-	});
+	await send(entry(["from another extension"], "log", { extensionId: "ponmlkjihgfedcbaponmlkjihgfedcba", extensionName: "Other Extension" }));
 
 	assert.match(
 		await callTool("get_logs", { since: "1m" }),
@@ -196,37 +214,25 @@ test("says when logs come from more than one extension", async () => {
 	assert.doesNotMatch(await callTool("get_logs", { extension: "Test Extension" }), /These entries come from/);
 });
 
-function postCommands(
-	path,
-	body,
-	origin = extensionOrigin)
-{
-	return fetch(`${baseURL}${path}`, {
-		method: "POST",
-		headers: { "Content-Type": "application/json", Origin: origin },
-		body: JSON.stringify(body ?? {}),
-	});
-}
-
 async function answerReload(
 	outcome,
 	reloadManifest)
 {
 	const call = callTool("reload_extension", { extension: "Test Extension", reloadManifest });
-	const { commands } = await postCommands("/commands").then((response) => response.json());
+	const commands = await link.pollCommands();
 
 	assert.deepEqual(
 		commands.map(({ name, args }) => ({ name, args })),
 		[{ name: "reload", args: { extension: "Test Extension", ...(reloadManifest && { reloadManifest }) } }]
 	);
-	await postCommands("/commands/result", { id: commands[0].id, ...outcome });
+	await link.sendCommandResult(commands[0].id, outcome);
 
 	return call;
 }
 
 test("only the stdout extension can get commands or report results", async () => {
-	assert.equal((await postCommands("/commands", {}, "https://example.com")).status, 403);
-	assert.equal((await postCommands("/commands/result", { id: 1 }, "chrome-extension://someoneelse")).status, 403);
+	assert.equal((await post(LinkRoutes.Commands, {}, "https://example.com")).status, 403);
+	assert.equal((await post(LinkRoutes.CommandResult, { id: 1 }, "chrome-extension://someoneelse")).status, 403);
 });
 
 test("reloads an extension through the stdout extension", async () => {
@@ -258,10 +264,51 @@ test("the reload cursor includes logs that arrive before the extension gets the 
 	const call = callTool("reload_extension", { extension: "Test Extension" });
 
 	await new Promise((resolve) => setTimeout(resolve, 200));
-	await ingest({ afterSeq: 7, entries: [entry(8, ["backlog"])] });
+	await send(entry(["backlog"]));
 
-	const { commands } = await postCommands("/commands").then((response) => response.json());
+	const commands = await link.pollCommands();
 
-	await postCommands("/commands/result", { id: commands[0].id, result: { id: "abc", name: "Test Extension", manifest: "skipped" } });
+	await link.sendCommandResult(commands[0].id, { result: { id: "abc", name: "Test Extension", manifest: "skipped" } });
 	assert.match(await call, /cursor: 9 /);
+});
+
+test("resends from the daemon's sync position when the extension's is wrong", async () => {
+	const delivered = syncPosition;
+
+	addToBuffer([entry(["missed one"]), entry(["missed two"])]);
+
+		// as if the extension thinks the daemon got these before it restarted
+	syncPosition = buffer.length;
+	syncPosition = await link.catchUp({ bufferId, syncPosition, getEntriesAfter });
+
+	assert.equal(syncPosition, delivered + 2);
+	assert.match(await callTool("get_logs", { limit: 2 }), /missed one[^]*missed two/);
+});
+
+test("sends a backlog larger than one batch", async () => {
+	const start = syncPosition;
+
+	addToBuffer(Array.from({ length: 1201 }, (_, i) => entry([`backlog ${i}`])));
+	syncPosition = await link.catchUp({ bufferId, syncPosition, getEntriesAfter });
+
+	assert.equal(syncPosition, start + 1201);
+	assert.match(await callTool("get_logs", { limit: 1 }), /backlog 1200/);
+});
+
+test("rejects a failed exchange", async () => {
+	const failing = createExtensionLink({ baseURL, fetch: (url, init) => fetch(url, init) });
+
+	await assert.rejects(failing.pollCommands(), /HTTP 403/);
+});
+
+test("warns when the extension's Extension Link version differs", async () => {
+	const check = (body) => post(LinkRoutes.Ingest, { bufferId, syncPosition, entries: [], ...body })
+		.then(() => callTool("get_logs", { limit: 1 }));
+
+	assert.match(await check({}), /Note: the stdout extension running in Chrome is older .*reload button/);
+	assert.match(await check({ linkVersion: LinkVersion - 1 }), /is older/);
+	assert.match(await check({ linkVersion: LinkVersion + 1 }), /is newer .*update the stdout-mcp package/);
+
+	await send();
+	assert.doesNotMatch(await callTool("get_logs", { limit: 1 }), /Note:/);
 });

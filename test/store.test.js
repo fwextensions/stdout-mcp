@@ -16,27 +16,27 @@ const entry = (seq, args = [`message ${seq}`], extra = {}) => ({
 test("accepts only batches that continue from the last entry", () => {
 	const store = new LogStore();
 
-	assert.deepEqual(store.ingest({ bufferId: "a", afterSeq: null, entries: [] }), { maxSeq: 0 });
-	assert.deepEqual(store.ingest({ bufferId: "a", afterSeq: 5, entries: [entry(6)] }), { maxSeq: 0 });
-	assert.deepEqual(store.ingest({ bufferId: "a", afterSeq: 0, entries: [entry(3), entry(4)] }), { maxSeq: 4 });
-	assert.deepEqual(store.ingest({ bufferId: "a", afterSeq: 4, entries: [entry(5)] }), { maxSeq: 5 });
+	assert.deepEqual(store.ingest({ bufferId: "a", syncPosition: null, entries: [] }), { syncPosition: 0 });
+	assert.deepEqual(store.ingest({ bufferId: "a", syncPosition: 5, entries: [entry(6)] }), { syncPosition: 0 });
+	assert.deepEqual(store.ingest({ bufferId: "a", syncPosition: 0, entries: [entry(3), entry(4)] }), { syncPosition: 4 });
+	assert.deepEqual(store.ingest({ bufferId: "a", syncPosition: 4, entries: [entry(5)] }), { syncPosition: 5 });
 	assert.equal(store.entries.length, 3);
 });
 
 test("starts over when the buffer ID changes", () => {
 	const store = new LogStore();
 
-	store.ingest({ bufferId: "a", afterSeq: 0, entries: [entry(1), entry(2)] });
-	assert.deepEqual(store.ingest({ bufferId: "b", afterSeq: 2, entries: [entry(3)] }), { maxSeq: 0 });
+	store.ingest({ bufferId: "a", syncPosition: 0, entries: [entry(1), entry(2)] });
+	assert.deepEqual(store.ingest({ bufferId: "b", syncPosition: 2, entries: [entry(3)] }), { syncPosition: 0 });
 	assert.equal(store.entries.length, 0);
-	store.ingest({ bufferId: "b", afterSeq: 0, entries: [entry(1)] });
+	store.ingest({ bufferId: "b", syncPosition: 0, entries: [entry(1)] });
 	assert.equal(store.entries.length, 1);
 });
 
 test("queries the tail or pages forward from a cursor", () => {
 	const store = new LogStore();
 
-	store.ingest({ bufferId: "a", afterSeq: 0, entries: [1, 2, 3, 4, 5].map((seq) => entry(seq)) });
+	store.ingest({ bufferId: "a", syncPosition: 0, entries: [1, 2, 3, 4, 5].map((seq) => entry(seq)) });
 	assert.deepEqual(store.query({ limit: 2 }).entries.map(({ seq }) => seq), [4, 5]);
 	assert.deepEqual(store.query({ after: 1, limit: 2 }).entries.map(({ seq }) => seq), [2, 3]);
 	assert.deepEqual(store.query({ after: 5 }).entries, []);
@@ -52,7 +52,7 @@ test("filters by level, extension, filename and search", () => {
 
 	store.ingest({
 		bufferId: "a",
-		afterSeq: 0,
+		syncPosition: 0,
 		entries: [
 			entry(1, ["Started up"]),
 			entry(2, ["Failed to fetch", { status: 404 }], { method: "error" }),
@@ -73,12 +73,12 @@ test("filters by level, extension, filename and search", () => {
 test("waits for a matching entry", async () => {
 	const store = new LogStore();
 
-	store.ingest({ bufferId: "a", afterSeq: 0, entries: [entry(1, ["ready"])] });
+	store.ingest({ bufferId: "a", syncPosition: 0, entries: [entry(1, ["ready"])] });
 
 	const { promise } = store.wait({ filter: { search: "ready" }, timeoutMs: 1000 });
 
-	store.ingest({ bufferId: "a", afterSeq: 1, entries: [entry(2, ["not yet"])] });
-	store.ingest({ bufferId: "a", afterSeq: 2, entries: [entry(3, ["ready again"])] });
+	store.ingest({ bufferId: "a", syncPosition: 1, entries: [entry(2, ["not yet"])] });
+	store.ingest({ bufferId: "a", syncPosition: 2, entries: [entry(3, ["ready again"])] });
 
 	const result = await promise;
 
@@ -95,11 +95,11 @@ test("waits for a matching entry", async () => {
 test("renumbers entries and adds marks between them", () => {
 	const store = new LogStore();
 
-	store.ingest({ bufferId: "a", afterSeq: 0, entries: [entry(7), entry(8)] });
+	store.ingest({ bufferId: "a", syncPosition: 0, entries: [entry(7), entry(8)] });
 
 	const mark = store.addMark("repro start");
 
-	assert.deepEqual(store.ingest({ bufferId: "a", afterSeq: 8, entries: [entry(9)] }), { maxSeq: 9 });
+	assert.deepEqual(store.ingest({ bufferId: "a", syncPosition: 8, entries: [entry(9)] }), { syncPosition: 9 });
 	assert.equal(mark.seq, 3);
 	assert.deepEqual(store.entries.map(({ seq, text }) => [seq, text]),
 		[[1, "message 7"], [2, "message 8"], [3, "repro start"], [4, "message 9"]]);
@@ -111,12 +111,12 @@ test("renumbers entries and adds marks between them", () => {
 test("doesn't end a wait with a mark", async () => {
 	const store = new LogStore();
 
-	store.ingest({ bufferId: "a", afterSeq: 0, entries: [entry(1)] });
+	store.ingest({ bufferId: "a", syncPosition: 0, entries: [entry(1)] });
 
 	const { promise } = store.wait({ filter: { search: "" }, timeoutMs: 1000 });
 
 	store.addMark("mark");
-	store.ingest({ bufferId: "a", afterSeq: 1, entries: [entry(2)] });
+	store.ingest({ bufferId: "a", syncPosition: 1, entries: [entry(2)] });
 	assert.deepEqual((await promise).entries.map(({ text }) => text), ["message 2"]);
 	assert.deepEqual((await store.wait({ after: 1, timeoutMs: 10 }).promise).entries.map(({ text }) => text),
 		["message 2"]);
@@ -127,7 +127,7 @@ test("flags the first entry from each page load", () => {
 
 	store.ingest({
 		bufferId: "a",
-		afterSeq: 0,
+		syncPosition: 0,
 		entries: [
 			entry(1, ["old lib"]),
 			entry(2, ["a1"], { loadId: "a" }),
@@ -143,7 +143,7 @@ test("flags the first entry from each page load", () => {
 test("filters by time and returns the entries around one", () => {
 	const store = new LogStore();
 
-	store.ingest({ bufferId: "a", afterSeq: 0, entries: [1, 2, 3, 4, 5, 6, 7, 8, 9].map((seq) => entry(seq)) });
+	store.ingest({ bufferId: "a", syncPosition: 0, entries: [1, 2, 3, 4, 5, 6, 7, 8, 9].map((seq) => entry(seq)) });
 
 	const seqs = (query) => store.query(query).entries.map(({ seq }) => seq);
 

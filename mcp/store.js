@@ -57,6 +57,9 @@ export class LogStore
 		this.maxEntries = maxEntries;
 		this.bufferId = null;
 		this.lastIngestAt = 0;
+			// the Extension Link version the stdout extension last sent, which is 0
+			// if it predates them, or null if we haven't heard from it
+		this.extensionLinkVersion = null;
 		this.waiters = new Set();
 		this.reset();
 	}
@@ -66,8 +69,9 @@ export class LogStore
 	{
 		this.bufferId = bufferId;
 		this.entries = [];
-			// the last sequence number in the extension's buffer that we have
-		this.extensionSeq = 0;
+			// the last entry from the extension's buffer that we have, numbered by
+			// the extension
+		this.syncPosition = 0;
 			// the last sequence number we've assigned
 		this.maxSeq = 0;
 		this.sources = new Map();
@@ -90,14 +94,14 @@ export class LogStore
 
 	/**
 	 * Accept a batch of entries from the extension, if it continues from the last
-	 * one we have.  Otherwise, the returned `maxSeq` tells the extension where to
-	 * resend from.  It's the extension's sequence number, not ours.
+	 * one we have.  Otherwise, the returned position tells the extension where to
+	 * resend from.
 	 *
-	 * @param {{ bufferId: string, afterSeq: number|null, entries: object[] }} batch
-	 * @returns {{ maxSeq: number }}
+	 * @param {import("../extension/link.js").IngestRequest} batch
+	 * @returns {import("../extension/link.js").IngestReply}
 	 */
 	ingest(
-		{ bufferId, afterSeq, entries })
+		{ bufferId, syncPosition, entries, linkVersion })
 	{
 		if (bufferId !== this.bufferId) {
 				// the extension's buffer was recreated, so its sequence numbers
@@ -106,22 +110,23 @@ export class LogStore
 		}
 
 		this.lastIngestAt = Date.now();
+		this.extensionLinkVersion = Number.isInteger(linkVersion) ? linkVersion : 0;
 
-		if (afterSeq !== this.extensionSeq || !Array.isArray(entries)) {
-			return { maxSeq: this.extensionSeq };
+		if (syncPosition !== this.syncPosition || !Array.isArray(entries)) {
+			return { syncPosition: this.syncPosition };
 		}
 
 		const added = [];
 
 		for (const { seq, ...entry } of entries.filter(Boolean)) {
-			if (Number.isInteger(seq) && seq > this.extensionSeq && Array.isArray(entry.args)) {
+			if (Number.isInteger(seq) && seq > this.syncPosition && Array.isArray(entry.args)) {
 				const { loadId } = entry;
 					// the first entry from each page load, so a restarted service
 					// worker or reopened popup is easy to spot
 				const newLoad = typeof loadId === "string" && !this.loadIds.has(loadId);
 				const stored = this.add({ ...entry, newLoad, text: formatArgs(entry.args) });
 
-				this.extensionSeq = seq;
+				this.syncPosition = seq;
 				this.loadIds.add(loadId);
 				this.addSource(stored);
 				added.push(stored);
@@ -134,7 +139,7 @@ export class LogStore
 			}
 		}
 
-		return { maxSeq: this.extensionSeq };
+		return { syncPosition: this.syncPosition };
 	}
 
 	/**

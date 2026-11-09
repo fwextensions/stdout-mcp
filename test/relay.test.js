@@ -44,7 +44,7 @@ test("replaces a daemon that was started from older code", async () => {
 
 	const result = await client.callTool({ name: "list_sources", arguments: {} });
 
-	assert.match(result.content[0].text, /Log server started \d+ seconds ago/);
+	assert.match(result.content[0].text, /MCP server started \d+ seconds ago/);
 	await exited;
 
 	const health = await fetch(`${baseURL}/health`).then((response) => response.json());
@@ -64,6 +64,6 @@ test("restarts the daemon if it exits during a session", async () => {
 
 	const result = await client.callTool({ name: "list_sources", arguments: {} });
 
-	assert.match(result.content[0].text, /Log server started \d+ seconds ago/);
+	assert.match(result.content[0].text, /MCP server started \d+ seconds ago/);
 	assert.notEqual((await fetch(`${baseURL}/health`).then((response) => response.json())).pid, pid);
 });

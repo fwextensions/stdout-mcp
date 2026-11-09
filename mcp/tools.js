@@ -1,6 +1,7 @@
 // @ts-check
 import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
+import { CommandNames, LinkVersion, ManifestStatus } from "../extension/link.js";
 
 /** @typedef {import("@modelcontextprotocol/server").CallToolResult} CallToolResult */
 
@@ -12,6 +13,7 @@ import { z } from "zod";
  * @property {string} codeVersion  Hash of the code the daemon was started from.
  * @property {number} startedAt
  * @property {number} lastIngestAt  When the stdout extension last sent entries, or 0.
+ * @property {number|null} extensionLinkVersion  The Extension Link version it last sent.
  * @property {number} maxSeq
  * @property {number} entryCount
  */
@@ -199,10 +201,10 @@ function parseSince(
 }
 
 function getConnectionNote(
-	{ lastIngestAt, startedAt })
+	{ lastIngestAt, startedAt, extensionLinkVersion })
 {
 	if (!lastIngestAt) {
-		return `Note: the stdout extension hasn't sent anything since the log server started ${formatAge(startedAt)}. `
+		return `Note: the stdout extension hasn't sent anything since the MCP server started ${formatAge(startedAt)}. `
 			+ "If agent mode is on (the stdout toolbar icon in Chrome shows an MCP badge), its stored logs will arrive within about 30 seconds. "
 			+ "Otherwise, ask the user to click the stdout toolbar icon to turn on agent mode.";
 	}
@@ -210,6 +212,16 @@ function getConnectionNote(
 	if (Date.now() - lastIngestAt > SyncStaleTime) {
 		return `Note: the stdout extension last checked in ${formatAge(lastIngestAt)}, so agent mode may have been turned off, or Chrome may be closed. `
 			+ "Newer logs may be missing.";
+	}
+
+	if (extensionLinkVersion < LinkVersion) {
+		return "Note: the stdout extension running in Chrome is older than this MCP server, so logs or commands may not work. "
+			+ "Ask the user to click the reload button for stdout on chrome://extensions.";
+	}
+
+	if (extensionLinkVersion > LinkVersion) {
+		return "Note: the stdout extension running in Chrome is newer than this MCP server, so logs or commands may not work. "
+			+ "Ask the user to update the stdout-mcp package this agent is using.";
 	}
 
 	return "";
@@ -229,26 +241,27 @@ function getReloadMessage(
 	const extension = `${name} (${id})`;
 
 	switch (manifest) {
-		case "reloaded":
+		case ManifestStatus.Reloaded:
 			return `Reloaded ${extension}, including its manifest.json. It's now version ${version}, `
 				+ "and its service worker started and called stdout().";
 
-		case "unconfirmed":
+		case ManifestStatus.Unconfirmed:
 			return `Asked ${extension} to reload, including its manifest.json. It's enabled at version `
 				+ `${version}, but its service worker didn't call stdout() again, so it may not have `
 				+ "started. Check its logs, or ask the user to look at chrome://extensions.";
 
-		case "failed":
+		case ManifestStatus.Failed:
 			throw new Error(`Asked ${extension} to reload its manifest.json, but it didn't come back. `
 				+ "The manifest may be invalid, and Chrome has turned the extension off. Once it's fixed, "
 				+ "ask the user to click the reload button on chrome://extensions.");
 
-		case "unreachable":
+		case ManifestStatus.Unreachable:
 			return `Reloaded the code of ${extension}, but manifest.json was not read again, because the `
 				+ "extension didn't answer. It needs the current stdout-mcp library, with stdout() called "
 				+ "when a working service worker starts. If manifest.json changed, ask the user to click "
 				+ "the reload button on chrome://extensions.";
 
+		case ManifestStatus.Skipped:
 		default:
 			return `Reloaded the code of ${extension}. manifest.json was not read again. If it changed, `
 				+ "call this again with `reloadManifest`.";
@@ -492,7 +505,7 @@ export function createMcpServer(
 					// command, which matters when the daemon has just started and has
 					// no logs yet
 				let cursor;
-				const { promise, cancel } = commands.send("reload", { extension, reloadManifest }, ReloadTimeout,
+				const { promise, cancel } = commands.send(CommandNames.Reload, { extension, reloadManifest }, ReloadTimeout,
 					() => cursor = getStatus().maxSeq);
 
 				ctx.mcpReq.signal.addEventListener("abort", cancel);
@@ -534,7 +547,7 @@ export function createMcpServer(
 		async () => {
 			try {
 				const result = { ...getStatus(), sources: store.getSources() };
-				const status = `Log server started ${formatAge(result.startedAt)} and holds ${result.entryCount} entries. `
+				const status = `MCP server started ${formatAge(result.startedAt)} and holds ${result.entryCount} entries. `
 					+ (result.lastIngestAt
 						? `The stdout extension last checked in ${formatAge(result.lastIngestAt)}.`
 						: "The stdout extension hasn't checked in yet.");

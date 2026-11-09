@@ -1,3 +1,5 @@
+import { CommandNames, ManifestStatus } from "./link.js";
+
 const RegisteredPrefix = "registered:";
 	// waking a service worker can take a moment
 const ReloadAnswerTimeout = 5 * 1000;
@@ -76,10 +78,10 @@ async function confirmFullReload(
 	const installed = await chrome.management.get(id).catch(() => null);
 
 	if (!installed?.enabled) {
-		return { manifest: "failed" };
+		return { manifest: ManifestStatus.Failed };
 	}
 
-	return { manifest: restarted ? "reloaded" : "unconfirmed", version: installed.version };
+	return { manifest: restarted ? ManifestStatus.Reloaded : ManifestStatus.Unconfirmed, version: installed.version };
 }
 
 async function findExtension(
@@ -130,11 +132,11 @@ async function reloadExtension(
 	await chrome.management.setEnabled(id, false);
 	await chrome.management.setEnabled(id, true);
 
-	return { id, name, manifest: reloadManifest ? "unreachable" : "skipped" };
+	return { id, name, manifest: reloadManifest ? ManifestStatus.Unreachable : ManifestStatus.Skipped };
 }
 
 const Commands = {
-	reload: reloadExtension,
+	[CommandNames.Reload]: reloadExtension,
 };
 
 /**

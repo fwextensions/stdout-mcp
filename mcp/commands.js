@@ -1,18 +1,9 @@
 // @ts-check
 
-/**
- * @typedef {object} Command
- * @property {number} id
- * @property {string} name
- * @property {object} args
- */
+/** @typedef {import("../extension/link.js").Command} Command */
 
 /**
- * @typedef {object} CommandOutcome
- * @property {any} [result]  What the stdout extension returned.
- * @property {string} [error]  Why the stdout extension couldn't run the command.
- * @property {boolean} [timedOut]
- * @property {boolean} [cancelled]
+ * @typedef {import("../extension/link.js").CommandResult & { timedOut?: boolean, cancelled?: boolean }} CommandOutcome
  */
 
 /**

@@ -1,21 +1,16 @@
 import { getBufferId, getEntriesAfter } from "./buffer.js";
 import { runCommand } from "./commands.js";
-
-	// the stdout-mcp server listens on this port by default
-export const ServerURL = "http://127.0.0.1:47321";
+import { CheckInPeriodSeconds, createExtensionLink } from "./link.js";
 
 const AlarmName = "stdout-sync";
-	// alarms wake the service worker to send any logs the server doesn't have yet,
-	// such as after a new agent session starts the server.  30 seconds is the
-	// shortest period Chrome allows.
-const AlarmPeriodMinutes = 0.5;
+	// alarms wake the service worker to send any logs the daemon doesn't have yet,
+	// such as after a new agent session starts it
+const AlarmPeriodMinutes = CheckInPeriodSeconds / 60;
 	// right after agent mode is turned on or Chrome starts, an agent session is
-	// likely to start soon, so check for the server more often than the alarm
+	// likely to start soon, so check for the daemon more often than the alarm
 const FastRetryDelay = 5 * 1000;
 const FastRetryDuration = 3 * 60 * 1000;
 const FlushDelay = 250;
-const BatchSize = 500;
-const MaxBatchesPerFlush = 50;
 	// after a failed request, leave retries to the alarm instead of trying again
 	// on every new log message
 const RetryDelay = 30 * 1000;
@@ -25,9 +20,10 @@ const BadgeColors = {
 	waiting: "#888",
 };
 
-	// the highest sequence number the server has from this buffer, or null if we
-	// haven't asked it yet since the service worker started
-let serverSeq = null;
+const link = createExtensionLink();
+
+	// null if we haven't asked the daemon yet since the service worker started
+let syncPosition = null;
 let flushTimer = null;
 let flushing = null;
 let flushAgain = false;
@@ -87,7 +83,7 @@ export async function handleStorageChange(
 	} else {
 		await chrome.alarms.clear(AlarmName);
 		await updateBadge(false);
-		serverSeq = null;
+		syncPosition = null;
 	}
 }
 
@@ -159,19 +155,13 @@ async function sendCommandResult(
 		? await runCommand(command)
 		: { error: "Agent mode was turned off in the stdout extension." };
 
-	await fetch(`${ServerURL}/commands/result`, {
-		method: "POST",
-		headers: { "Content-Type": "application/json" },
-		body: JSON.stringify({ id: command.id, ...outcome }),
-	});
+	await link.sendCommandResult(command.id, outcome);
 }
 
 /**
- * Ask the server for commands for as long as it's running.  The server holds
- * each request until it has a command, for less than Chrome's limit on how long
- * a fetch can take.  Checking the storage API between requests keeps the service
- * worker awake.  If the server goes away, the next successful sync starts this
- * again.
+ * Ask the daemon for commands for as long as it's running.  Checking the storage
+ * API between requests keeps the service worker awake.  If the daemon goes away,
+ * the next successful sync starts this again.
  */
 async function pollCommands()
 {
@@ -183,25 +173,19 @@ async function pollCommands()
 
 	try {
 		while (await isAgentMode()) {
-			const response = await fetch(`${ServerURL}/commands`, { method: "POST" });
-
-			if (!response.ok) {
-				throw new Error(`HTTP ${response.status}`);
-			}
-
-			const { commands } = await response.json();
+			const commands = await link.pollCommands();
 
 			await Promise.all(commands.map(sendCommandResult));
 		}
 	} catch {
-			// the alarm will start polling again once the server is back
+			// the alarm will start polling again once the daemon is back
 	} finally {
 		polling = false;
 	}
 }
 
 /**
- * Check for the server every few seconds for a little while, until it's found.
+ * Check for the daemon every few seconds for a little while, until it's found.
  * Each check calls the storage API, which keeps the service worker awake
  * between them.
  */
@@ -220,7 +204,7 @@ async function retryUntilConnected()
 			await flush();
 
 				// a failed sync clears this
-			if (serverSeq !== null) {
+			if (syncPosition !== null) {
 				break;
 			}
 
@@ -242,43 +226,15 @@ async function sendEntries()
 	try {
 		const bufferId = await getBufferId();
 
-		for (let i = 0; i < MaxBatchesPerFlush; i++) {
-				// the first request after the worker starts just asks the server what
-				// it already has
-			const entries = serverSeq === null
-				? []
-				: await getEntriesAfter(serverSeq, BatchSize);
-			const response = await fetch(`${ServerURL}/ingest`, {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ bufferId, afterSeq: serverSeq, entries }),
-			});
-
-			if (!response.ok) {
-				throw new Error(`HTTP ${response.status}`);
-			}
-
-			const { maxSeq } = await response.json();
-				// the server only accepts a batch that continues from what it already
-				// has.  if it restarted or we were out of date, it returns its actual
-				// position and we resend from there.
-			const accepted = serverSeq !== null
-				&& maxSeq === (entries.at(-1)?.seq ?? serverSeq);
-
-			serverSeq = maxSeq;
-
-			if (accepted && entries.length < BatchSize) {
-				break;
-			}
-		}
+		syncPosition = await link.catchUp({ bufferId, syncPosition, getEntriesAfter });
 
 		await updateBadge(true, "connected");
 
 		pollCommands();
 	} catch {
-			// the server isn't running, which is the normal state when no agent is
+			// the daemon isn't running, which is the normal state when no agent is
 			// using it
-		serverSeq = null;
+		syncPosition = null;
 		lastFailure = Date.now();
 		await updateBadge(true, "waiting");
 	}

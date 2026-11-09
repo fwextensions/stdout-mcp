@@ -1,8 +1,6 @@
 // @ts-check
+import { DefaultPort } from "../extension/link.js";
 import { STDOUT_ID } from "../lib/stdout.js";
-
-	// must match ServerURL in extension/sync.js
-export const DefaultPort = 47321;
 
 export const Port = Number(process.env.STDOUT_MCP_PORT) || DefaultPort;
 

@@ -58,7 +58,7 @@ async function startDaemon()
 	const health = await poll(getHealth, DaemonStartTimeout);
 
 	if (!health) {
-		throw new Error(`Couldn't start the stdout log server on port ${Port}. Is something else using that port?`);
+		throw new Error(`Couldn't start the stdout MCP server on port ${Port}. Is something else using that port?`);
 	}
 
 	return health;
