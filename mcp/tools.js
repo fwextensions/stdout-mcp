@@ -470,8 +470,12 @@ export function createMcpServer(
 		},
 		async ({ extension, reloadManifest }, ctx) => {
 			try {
-				const cursor = getStatus().maxSeq;
-				const { promise, cancel } = commands.send("reload", { extension, reloadManifest }, ReloadTimeout);
+					// the extension finishes sending its backlog before it picks up a
+					// command, which matters when the daemon has just started and has
+					// no logs yet
+				let cursor;
+				const { promise, cancel } = commands.send("reload", { extension, reloadManifest }, ReloadTimeout,
+					() => cursor = getStatus().maxSeq);
 
 				ctx.mcpReq.signal.addEventListener("abort", cancel);
 

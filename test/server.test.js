@@ -254,3 +254,15 @@ test("says whether reloading the manifest worked", async () => {
 test("reports why an extension couldn't be reloaded", async () => {
 	assert.match(await answerReload({ error: "Test Extension is turned off" }), /^Test Extension is turned off$/);
 });
+
+test("the reload cursor includes logs that arrive before the extension gets the command", async () => {
+	const call = callTool("reload_extension", { extension: "Test Extension" });
+
+	await new Promise((resolve) => setTimeout(resolve, 200));
+	await ingest({ afterSeq: 7, entries: [entry(8, ["backlog"])] });
+
+	const { commands } = await postCommands("/commands").then((response) => response.json());
+
+	await postCommands("/commands/result", { id: commands[0].id, result: { id: "abc", name: "Test Extension", manifest: "skipped" } });
+	assert.match(await call, /cursor: 9 /);
+});

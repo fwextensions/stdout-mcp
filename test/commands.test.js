@@ -50,3 +50,14 @@ test("a command that timed out or was cancelled never reaches the extension", as
 	assert.deepEqual(await promise, { cancelled: true });
 	assert.deepEqual(await queue.poll(1).promise, []);
 });
+
+test("says when a command is picked up, not when it's queued", async () => {
+	const queue = new CommandQueue();
+	let delivered = false;
+	const { cancel } = queue.send("reload", {}, 1000, () => delivered = true);
+
+	assert.equal(delivered, false);
+	await queue.poll(1000).promise;
+	assert.equal(delivered, true);
+	cancel();
+});

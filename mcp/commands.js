@@ -25,7 +25,7 @@ export class CommandQueue
 	constructor()
 	{
 		this.nextId = 1;
-			/** @type {Command[]} */
+			/** @type {{ command: Command, onDelivered?: () => void }[]} */
 		this.pending = [];
 			/** @type {Map<number, (outcome: CommandOutcome) => void>} */
 		this.outcomes = new Map();
@@ -39,12 +39,14 @@ export class CommandQueue
 	 * @param {string} name
 	 * @param {object} args
 	 * @param {number} timeoutMs
+	 * @param {() => void} [onDelivered]  Called when the extension picks it up.
 	 * @returns {{ promise: Promise<CommandOutcome>, cancel: () => void }}
 	 */
 	send(
 		name,
 		args,
-		timeoutMs)
+		timeoutMs,
+		onDelivered)
 	{
 		const command = { id: this.nextId++, name, args };
 		let cancel;
@@ -53,7 +55,7 @@ export class CommandQueue
 				// running later, when the agent no longer expects it
 			const finish = (outcome) => {
 				clearTimeout(timer);
-				this.pending = this.pending.filter((pending) => pending !== command);
+				this.pending = this.pending.filter((pending) => pending.command !== command);
 				this.outcomes.delete(command.id);
 				resolve(outcome);
 			};
@@ -63,7 +65,7 @@ export class CommandQueue
 			this.outcomes.set(command.id, finish);
 		});
 
-		this.pending.push(command);
+		this.pending.push({ command, onDelivered });
 		this.deliver();
 
 		return { promise, cancel };
@@ -117,10 +119,11 @@ export class CommandQueue
 	deliver()
 	{
 		if (this.poller && this.pending.length) {
-			const commands = this.pending;
+			const pending = this.pending;
 
 			this.pending = [];
-			this.poller(commands);
+			pending.forEach(({ onDelivered }) => onDelivered?.());
+			this.poller(pending.map(({ command }) => command));
 		}
 	}
 }
