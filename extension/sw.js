@@ -5,6 +5,7 @@ import { handleAlarm, handleStorageChange, restoreAgentMode, scheduleFlush, togg
 
 const FilenameStyle = "color: light-dark(#aaa, #888)";
 const ResetStyle = "color: initial";
+const ErrorLabelStyle = "color: light-dark(#c00, #f66); font-weight: bold";
 	// ignore %%, which escapes the % character
 const SubstitutionPattern = /%[^%]/;
 
@@ -52,7 +53,13 @@ function handleMessage(
 	if (typeof console[method] === "function") {
 		const [firstArg, ...rest] = args;
 		const senderInfo = (senderIDs.size > 1 ? sender.id.slice(0, 4) + " " : "") + filename;
-		let outputArgs = ["%c%s", FilenameStyle, senderInfo, ...args.map(fromJSONSafe)];
+			// Chrome lists console.error() calls on chrome://extensions as errors in
+			// this extension, so show other extensions' errors as labeled warnings
+		const isError = method === "error";
+		const label = isError
+			? ["%cerror %c%s", ErrorLabelStyle, FilenameStyle, senderInfo]
+			: ["%c%s", FilenameStyle, senderInfo];
+		let outputArgs = [...label, ...args.map(fromJSONSafe)];
 
 		if (SubstitutionPattern.test(firstArg) && rest.length) {
 				// firstArg contains a string substitution and there are additional args
@@ -64,15 +71,14 @@ function handleMessage(
 				// style, the filename, and the reset style, and finally the rest of
 				// the message args.
 			outputArgs = [
-				"%c%s%c " + firstArg,
-				FilenameStyle,
-				senderInfo,
+				label[0] + "%c " + firstArg,
+				...label.slice(1),
 				ResetStyle,
 				...rest.map(fromJSONSafe)
 			];
 		}
 
-		console[method](...outputArgs);
+		console[isError ? "warn" : method](...outputArgs);
 	}
 
 		// if we don't call sendResponse(), Chrome will keep the calling service worker

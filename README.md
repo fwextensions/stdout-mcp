@@ -37,7 +37,7 @@ stdout(STDOUT_ID);
 console.log("my important message", { hello: "world" });
 ```
 
-By default, the global `console` object will be wrapped with methods that forward all calls to the `stdout` extension, so anything passed to `console.log()`, `console.error()`, etc. in your extension will also be displayed in the `stdout` service worker's console.
+By default, the global `console` object will be wrapped with methods that forward all calls to the `stdout` extension, so anything passed to `console.log()`, `console.error()`, etc. in your extension will also be displayed in the `stdout` service worker's console.  Calls to `console.error()` appear there as warnings labeled "error", so they aren't listed as errors in `stdout` itself on `chrome://extensions`.
 
 Call `stdout()` once from each "page" in your extension from which you want to send console output: the service worker, the popup, content scripts, etc.  If you pass an empty string or `null` for the ID, `stdout()` will silently do nothing, so you can use an environment variable or something similar to enable log forwarding in development mode but disable it in production.
 
