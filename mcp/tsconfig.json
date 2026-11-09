@@ -9,5 +9,5 @@
     "target": "es2022",
     "types": ["node"]
   },
-  "include": ["./*.js"]
+  "include": ["./*.js", "../extension/connection.js"]
 }

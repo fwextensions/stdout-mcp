@@ -23,6 +23,16 @@ The per-session process that connects one agent to the daemon.
 The conversation between the stdout extension and the daemon: what each may say to the other, and in what order.
 _Avoid_: protocol (which means the MCP protocol), sync protocol, wire format
 
+**Agent mode**:
+The setting, turned on from the stdout extension's toolbar icon, that lets the stdout extension send its logs to the daemon and take commands from it. Logs are stored whether or not it's on.
+
+**Check-in**:
+A periodic wake-up during agent mode, when the stdout extension offers the daemon anything it's missing, even if nothing new has been logged.
+
+**Daemon connection**:
+The stdout extension's ongoing effort, during agent mode, to keep the daemon caught up and answer its commands. It's either off, looking for the daemon, or connected.
+_Avoid_: sync engine
+
 **Sync position**:
 The last entry from the stdout extension's buffer that the daemon holds, numbered by the extension.
 _Avoid_: maxSeq, extensionSeq, serverSeq, afterSeq

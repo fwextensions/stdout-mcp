@@ -1,7 +1,7 @@
+import { handleAlarm, handleEntryAdded, handleStorageChange, restoreAgentMode, toggleAgentMode } from "./agent-mode.js";
 import { addEntry } from "./buffer.js";
 import { notifyRegistered, registerExtension } from "./commands.js";
 import { fromJSONSafe } from "./deserialize.js";
-import { handleAlarm, handleStorageChange, restoreAgentMode, scheduleFlush, toggleAgentMode } from "./sync.js";
 
 const FilenameStyle = "color: light-dark(#aaa, #888)";
 const ResetStyle = "color: initial";
@@ -47,7 +47,7 @@ function handleMessage(
 		method,
 		args,
 	})
-		.then(scheduleFlush)
+		.then(handleEntryAdded)
 		.catch((error) => console.error("stdout: couldn't store log entry", error));
 
 	if (typeof console[method] === "function") {

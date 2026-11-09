@@ -4,8 +4,8 @@ import { randomUUID } from "node:crypto";
 import { createMcpHandler } from "@modelcontextprotocol/server";
 import { toNodeHandler } from "@modelcontextprotocol/node";
 import { CommandQueue } from "./commands.js";
-import { LinkRoutes } from "../extension/link.js";
 import { ExtensionOrigin, IdleTimeout, Port } from "./constants.js";
+import { createExtensionRoutes, ExtensionRoutes } from "./extension-routes.js";
 import { LogStore } from "./store.js";
 import { createMcpServer } from "./tools.js";
 import { getCodeVersion } from "./version.js";
@@ -14,12 +14,10 @@ import { getCodeVersion } from "./version.js";
 const MaxBodySize = 16 * 1024 * 1024;
 	// returned by route() when it has already sent the response
 const Handled = Symbol("handled");
-	// Chrome shuts down a service worker whose fetch takes more than 30 seconds
-const CommandPollTime = 25 * 1000;
-const ExtensionRoutes = new Set(Object.values(LinkRoutes));
 
 const store = new LogStore();
 const commands = new CommandQueue();
+const handleExtensionRequest = createExtensionRoutes({ store, commands });
 const bootId = randomUUID();
 const codeVersion = getCodeVersion();
 const startedAt = Date.now();
@@ -86,30 +84,6 @@ function getStatus()
 	// sessions.  requests from 2025-era clients are served the same way.
 const handleMCP = toNodeHandler(createMcpHandler(() => createMcpServer({ store, getStatus, commands })));
 
-async function handleExtensionRequest(
-	url,
-	req,
-	res)
-{
-	if (url === LinkRoutes.Ingest) {
-		return store.ingest(await readJSON(req));
-	}
-
-	if (url === LinkRoutes.Commands) {
-		const { promise, cancel } = commands.poll(CommandPollTime);
-
-		res.on("close", cancel);
-
-		return { commands: await promise };
-	}
-
-	const { id, result, error } = await readJSON(req);
-
-	commands.complete(id, { result, error });
-
-	return { ok: true };
-}
-
 async function route(
 	req,
 	res)
@@ -128,7 +102,7 @@ async function route(
 			throw new HTTPError(403, "Forbidden origin");
 		}
 
-		return handleExtensionRequest(url, req, res);
+		return handleExtensionRequest(url, await readJSON(req), (listener) => res.on("close", listener));
 	}
 
 		// browsers always send an Origin with cross-origin requests, so this keeps
