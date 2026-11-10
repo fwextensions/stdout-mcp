@@ -23,14 +23,14 @@
   "type": "module",
   "files": [
     "lib/stdout.js",
-    "types/stdout.d.ts",
+    "types",
     "extension",
     "mcp"
   ],
   "exports": {
     ".": {
       "import": "./lib/stdout.js",
-      "types": "./types/stdout.d.ts"
+      "types": "./types/lib/stdout.d.ts"
     }
   },
   "scripts": {

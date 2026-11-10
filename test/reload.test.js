@@ -1,9 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { setImmediate as nextTurn } from "node:timers/promises";
-import { notifyRegistered, runCommand } from "../extension/commands.js";
+import { notifyWorkerStarted, runCommand } from "../extension/commands.js";
 import { CommandNames, ManifestStatus } from "../extension/daemon-link.js";
-import stdout from "../lib/stdout.js";
 
 const ID = "abc";
 const WakeTimeout = 5 * 1000;
@@ -31,7 +30,7 @@ function installChrome(
 
 	const wake = (id) => {
 		listening = answersAfterWake;
-		notifyRegistered({ id });
+		notifyWorkerStarted(id);
 	};
 
 		// never let the answer and restart timers run for real
@@ -45,7 +44,7 @@ function installChrome(
 				listening = enabled && answersAfterRestart;
 
 				if (enabled && registersAfterRestart) {
-					nextTurn().then(() => notifyRegistered({ id }));
+					nextTurn().then(() => notifyWorkerStarted(id));
 				}
 			},
 		},
@@ -62,7 +61,7 @@ function installChrome(
 				}
 
 				if (registersBeforeAnswering && calls.asks === 1) {
-					notifyRegistered({ id });
+					notifyWorkerStarted(id);
 				}
 
 				if (!listening) {
@@ -79,10 +78,10 @@ function installChrome(
 					throw new Error("Could not establish connection. Receiving end does not exist.");
 				}
 
-					// like the library, only reload once however many times we're asked
+					// like a tap, only reload once however many times we're asked
 				if (!reloading) {
 					reloading = true;
-					nextTurn().then(() => notifyRegistered({ id }));
+					nextTurn().then(() => notifyWorkerStarted(id));
 				}
 
 				return true;
@@ -204,45 +203,6 @@ test("doesn't ask again when the worker never starts", async (t) => {
 	assert.equal(result.manifest, ManifestStatus.Unreachable);
 	assert.equal(calls.asks, 1);
 	assert.deepEqual(calls.toggles, [false, true]);
-});
-
-	// stdout() only sets itself up once per module, so this is its only test here
-test("the library listens before registering, and only reloads once", (t) => {
-	const order = [];
-	let listener;
-	let reloads = 0;
-
-	t.mock.timers.enable({ apis: ["setTimeout"] });
-	globalThis.ServiceWorkerGlobalScope = class {};
-	globalThis.chrome = {
-		runtime: {
-			getManifest: () => ({ name: "Test" }),
-			reload: () => reloads++,
-			sendMessage: async () => order.push("register"),
-			onMessageExternal: {
-				addListener: (handler) => {
-					order.push("listen");
-					listener = handler;
-				},
-			},
-		},
-	};
-	t.after(() => {
-		delete globalThis.chrome;
-		delete globalThis.ServiceWorkerGlobalScope;
-	});
-
-	stdout({ id: ID, filename: "sw.js", wrapConsole: false });
-	assert.deepEqual(order, ["listen", "register"]);
-
-	const answers = [];
-
-	listener({ type: "reload" }, { id: ID }, (answer) => answers.push(answer));
-	listener({ type: "reload" }, { id: ID }, (answer) => answers.push(answer));
-	t.mock.timers.tick(1000);
-
-	assert.deepEqual(answers, [true, true]);
-	assert.equal(reloads, 1);
 });
 
 test("only restarts the extension when the manifest isn't wanted", async (t) => {

@@ -46,7 +46,7 @@ test("formats errors with their stack and extra fields", () => {
 
 	assert.match(text, /^failed: \{cause: TypeError: bad thing\n {4}at /);
 	assert.match(text, / \{code: 42\}\}$/);
-		// older versions of the library send errors without a stack
+		// older taps send errors without a stack
 	assert.equal(formatArgs([{ __type: "Error", name: "Error", message: "boom" }]), "Error: boom");
 });
 
@@ -89,7 +89,7 @@ for (const tagged of [
 	});
 }
 
-test("every value tag the library writes is one the readers accept", () => {
+test("every value tag a tap writes is one the readers accept", () => {
 	const self = {};
 
 	self.self = self;

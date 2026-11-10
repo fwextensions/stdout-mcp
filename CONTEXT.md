@@ -8,6 +8,14 @@ Lets developers and coding agents read the console output of Chrome extensions u
 The helper Chrome extension that stores console output from the extensions being debugged.
 _Avoid_: helper, remote extension
 
+**Tap**:
+The code that runs inside the extension being debugged, once it calls `stdout()`. It captures that extension's console calls and sends them to the stdout extension, and reloads the extension when asked.
+_Avoid_: library, client, proxy, forwarder
+
+**Tap Link**:
+The conversation between a tap and the stdout extension: what each may say to the other.
+_Avoid_: messages, payload
+
 **MCP server**:
 The installable product that coding agents are configured to use. It's made up of the relay and the daemon.
 _Avoid_: log server

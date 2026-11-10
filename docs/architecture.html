@@ -261,15 +261,15 @@
 <body>
 	<main>
 		<header style="display:grid;gap:0.6rem">
-			<div class="eyebrow">stdout-mcp · mcp/</div>
+			<div class="eyebrow">stdout-mcp</div>
 			<h1>stdout MCP Architecture</h1>
-			<p class="lede">How console output gets from your extension to a coding agent, which process does what, and why the agent talks stdio to a relay instead of HTTP to the daemon.</p>
+			<p class="lede">How console output gets from your extension to a coding agent, what the tap, the stdout extension and the daemon say to each other, and why the agent talks stdio to a relay instead of HTTP to the daemon.</p>
 		</header>
 
 		<section>
 			<h2>The pieces</h2>
 			<div class="figure">
-				<div class="diagram-scroll" role="img" aria-label="Diagram: your extension sends console calls to the stdout extension, which posts them to the daemon on port 47321. Each agent session talks stdio to its own relay process, which posts MCP messages to the same daemon.">
+				<div class="diagram-scroll" role="img" aria-label="Diagram: the tap in your extension talks to the stdout extension over the Tap Link, and the stdout extension talks to the daemon on port 47321 over the Daemon Link. Each agent session talks stdio to its own relay process, which posts MCP messages to the same daemon.">
 					<svg viewBox="0 0 910 320" xmlns="http://www.w3.org/2000/svg">
 						<defs>
 							<marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
@@ -291,7 +291,7 @@
 						<!-- chrome -->
 						<rect class="d-box" x="25" y="50" width="180" height="66" rx="6"/>
 						<text class="d-title" x="37" y="74">Your extension</text>
-						<text class="d-text" x="37" y="94">stdout-mcp library</text>
+						<text class="d-text" x="37" y="94">Tap: calls stdout()</text>
 						<text class="d-text" x="37" y="108">wraps console.*</text>
 
 						<rect class="d-box" x="25" y="196" width="180" height="96" rx="6"/>
@@ -307,7 +307,8 @@
 						<text class="d-text" x="312" y="150">127.0.0.1:47321</text>
 						<text class="d-text" x="312" y="172">LogStore (in memory)</text>
 						<text class="d-text" x="312" y="190">MCP tools (tools.js)</text>
-						<text class="d-text" x="312" y="212">/ingest  /mcp  /health</text>
+						<text class="d-text" x="312" y="212">/ingest  /commands</text>
+						<text class="d-text" x="312" y="226">/mcp  /health</text>
 						<text class="d-text" x="312" y="252">Exits after 2 hours</text>
 						<text class="d-text" x="312" y="266">without an agent request</text>
 
@@ -333,11 +334,13 @@
 						<text class="d-text" x="762" y="282">session B</text>
 
 						<!-- wires -->
-						<line class="d-wire" x1="115" y1="117" x2="115" y2="193" marker-end="url(#arrow)"/>
-						<text class="d-label" x="123" y="160">runtime.sendMessage</text>
+						<line class="d-wire" x1="115" y1="120" x2="115" y2="193" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+						<text class="d-label" x="123" y="152" font-weight="600">Tap Link</text>
+						<text class="d-label" x="123" y="168">runtime.sendMessage</text>
 
 						<line class="d-wire-http" x1="206" y1="244" x2="297" y2="244" marker-end="url(#arrow-http)"/>
-						<text class="d-label-http" x="212" y="236">POST /ingest</text>
+						<text class="d-label-http" x="212" y="236">Daemon Link</text>
+						<text class="d-label-http" x="212" y="260">POST</text>
 
 						<line class="d-wire-http" x1="483" y1="140" x2="562" y2="94" marker-start="url(#arrow-http)" marker-end="url(#arrow-http)"/>
 						<text class="d-label-http" x="490" y="104">POST /mcp</text>
@@ -358,14 +361,20 @@
 			<div class="table-scroll">
 				<table>
 					<thead>
-						<tr><th>Process</th><th>How many</th><th>Lifetime</th><th>Job</th></tr>
+						<tr><th>Piece</th><th>How many</th><th>Lifetime</th><th>Job</th></tr>
 					</thead>
 					<tbody>
+						<tr>
+							<td>Tap</td>
+							<td>One per page or worker of your extension</td>
+							<td>While that page or worker runs</td>
+							<td>The code that runs in your extension once it calls <code>stdout()</code>. It sends each console call to the stdout extension and still logs it locally. The tap in your service worker also reloads your extension when asked.</td>
+						</tr>
 						<tr>
 							<td>stdout extension</td>
 							<td>One in Chrome</td>
 							<td>While Chrome runs</td>
-							<td>Stores console calls from your extensions. In agent mode, sends them to the daemon as they arrive and checks for the daemon every 30 seconds.</td>
+							<td>Stores console calls from every tap, even when agent mode is off. In agent mode, sends them to the daemon as they arrive, checks in every 30 seconds, and runs the daemon's commands.</td>
 						</tr>
 						<tr>
 							<td>Daemon</td>
@@ -378,6 +387,62 @@
 							<td>One per agent session</td>
 							<td>The agent session</td>
 							<td>Starts or replaces the daemon when needed, then copies MCP messages between the agent's stdio and the daemon's <code>/mcp</code> endpoint.</td>
+						</tr>
+					</tbody>
+				</table>
+			</div>
+		</section>
+
+		<section>
+			<h2>The two links</h2>
+			<p>Each conversation between pieces has one module that owns it. That module defines every message, so both sides import the same definitions instead of each keeping its own copy. Both modules live in <code>extension/</code>, because an unpacked extension can't import anything outside its own folder. The tap and the daemon import them from there.</p>
+
+			<h3>Tap Link</h3>
+			<p>The tap and the stdout extension talk through <code>chrome.runtime.sendMessage</code>, which only carries JSON. It's defined in <code>extension/tap-link.js</code>. The stdout extension answers <code>false</code> to anything it doesn't recognize, and stores or registers nothing from it.</p>
+			<div class="table-scroll">
+				<table>
+					<thead>
+						<tr><th>Message</th><th>Sent by</th><th>When and why</th></tr>
+					</thead>
+					<tbody>
+						<tr>
+							<td><code>register</code></td>
+							<td>Tap</td>
+							<td>When <code>stdout()</code> is first called on each page or worker. The stdout extension remembers the extension, because agents can only reload extensions that have registered. It includes <code>worker: true</code> when it comes from a service worker. A reload counts that as proof the worker restarted, so a popup that reopens can't be mistaken for one.</td>
+						</tr>
+						<tr>
+							<td><code>log</code></td>
+							<td>Tap</td>
+							<td>On every console call. It carries the method, the arguments, the time, the page's filename, the extension's name and a load ID that changes each time the page or worker starts. Values that JSON can't carry, like a Map or an Error, are replaced with value tags. The stdout extension stores the entry and echoes it in its own console.</td>
+						</tr>
+						<tr>
+							<td><code>reload</code></td>
+							<td>stdout extension</td>
+							<td>When an agent asks to reload with the manifest. Only the tap in a service worker listens for this. It answers <code>true</code>, then calls <code>chrome.runtime.reload()</code>, and does that only once however many times it's asked.</td>
+						</tr>
+					</tbody>
+				</table>
+			</div>
+
+			<h3>Daemon Link</h3>
+			<p>The stdout extension and the daemon talk over HTTP. Every request comes from the stdout extension, because the daemon can't start a conversation with it. It's defined in <code>extension/daemon-link.js</code>. Each <code>/ingest</code> request includes a <code>linkVersion</code>, which lets the daemon tell agents when the stdout extension in Chrome doesn't match it.</p>
+			<div class="table-scroll">
+				<table>
+					<thead>
+						<tr><th>Request</th><th>What it carries</th></tr>
+					</thead>
+					<tbody>
+						<tr>
+							<td><code>POST /ingest</code></td>
+							<td>Up to 500 entries from the stdout extension's buffer, starting after the sync position, which is the last entry the stdout extension thinks the daemon has. The daemon answers with the position it really has, so the stdout extension can tell what to resend. A check-in sends the same request even when there are no new entries. An entry too big to send is replaced with a note, so it can't hold up the entries after it.</td>
+						</tr>
+						<tr>
+							<td><code>POST /commands</code></td>
+							<td>Held open for up to 25 seconds, then answers with any commands that are queued, such as a reload.</td>
+						</tr>
+						<tr>
+							<td><code>POST /commands/result</code></td>
+							<td>The result of a command, or why it couldn't run.</td>
 						</tr>
 					</tbody>
 				</table>
@@ -398,10 +463,23 @@
 		</section>
 
 		<section>
+			<h2>What happens on a reload</h2>
+			<p>A reload uses both links.</p>
+			<ol class="steps">
+				<li><div>The agent calls <code>reload_extension</code>. The daemon queues the command and waits for its result.</div></li>
+				<li><div>The stdout extension's open <code>POST /commands</code> request returns the command. The stdout extension checks that the extension is unpacked, turned on, and has registered.</div></li>
+				<li><div>With <code>reloadManifest</code>, the stdout extension sends <code>reload</code> to the extension's tap. That wakes a sleeping service worker. If the worker hasn't called <code>stdout()</code> by the time the message arrives, the stdout extension asks again once the worker registers.</div></li>
+				<li><div>The tap calls <code>chrome.runtime.reload()</code>, which reads <code>manifest.json</code> again. When the new worker's tap sends <code>register</code> with <code>worker: true</code>, the result is "reloaded". If the worker doesn't come back within 10 seconds, the result is "unconfirmed".</div></li>
+				<li><div>Without <code>reloadManifest</code>, or if no tap answers, the stdout extension turns the extension off and on. That runs its code again from disk but keeps the manifest Chrome already read.</div></li>
+				<li><div>The stdout extension posts the result to <code>/commands/result</code>. The daemon returns it to the agent with a cursor, so the agent can read only the logs from after the reload.</div></li>
+			</ol>
+		</section>
+
+		<section>
 			<h2>Why not put everything in the stdio process?</h2>
 			<p>That would remove the daemon, but three things need a process that outlives any one agent session:</p>
 			<ul>
-				<li><strong>The extension needs one fixed address.</strong> It posts to port 47321. Two agent sessions open at once would both try to listen on that port, and only one could.</li>
+				<li><strong>The stdout extension needs one fixed address.</strong> It posts to port 47321. Two agent sessions open at once would both try to listen on that port, and only one could.</li>
 				<li><strong>Logs should survive the session.</strong> A process the agent starts also exits with it. A daemon keeps the logs for the next session, and the extension only resends what the daemon is missing.</li>
 				<li><strong>Tool changes should reach every session.</strong> Because the tools run in the daemon, replacing it updates every open session at once.</li>
 			</ul>
@@ -460,7 +538,7 @@
 			<p class="note">Every request must be addressed to <code>127.0.0.1:47321</code> or <code>localhost:47321</code>, which keeps web pages from reaching the daemon through DNS rebinding. Browsers always send an <code>Origin</code> with cross-origin requests, so web pages can't read the logs either.</p>
 		</section>
 
-		<footer>Describes the code as of commit 6ac2202: MCP SDK v2, protocol 2026-07-28 with 2025-era clients still supported.</footer>
+		<footer>Describes the code as of the Tap Link change, which followed commit 870b91c: MCP SDK v2, protocol 2026-07-28 with 2025-era clients still supported. Terms like tap, Tap Link, Daemon Link, sync position and check-in are defined in <code>CONTEXT.md</code>.</footer>
 	</main>
 </body>
 </html>

@@ -1,7 +1,7 @@
 import { getValueTag, ValueTag } from "./value-tags.js";
 
 /**
- * Rebuild the values that the stdout() library converted to send them as JSON,
+ * Rebuild the values that a tap converted to send them as JSON,
  * as best we can, so they display naturally in this extension's console.
  *
  * @param {any} value

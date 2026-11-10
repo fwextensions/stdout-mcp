@@ -1,4 +1,5 @@
 import { CommandNames, ManifestStatus } from "./daemon-link.js";
+import { createReloadMessage } from "./tap-link.js";
 
 const RegisteredPrefix = "registered:";
 	// waking a service worker can take a moment
@@ -31,16 +32,13 @@ export function registerExtension(
 }
 
 /**
- * Note that a registering extension has started, which is how we can tell that
- * a full reload worked.  Content scripts in open tabs register whenever a page
- * loads, so those don't count.
+ * Note that an extension's service worker has started, which is how we can tell
+ * that a full reload worked.
  */
-export function notifyRegistered(
-	{ id, tab })
+export function notifyWorkerStarted(
+	id)
 {
-	if (!tab) {
-		restartWaiters.get(id)?.(true);
-	}
+	restartWaiters.get(id)?.(true);
 }
 
 function waitForRestart(
@@ -59,15 +57,15 @@ function waitForRestart(
 	});
 }
 
-	// the extension only answers if its service worker can run and it's using a
-	// version of the library that handles this message
+	// the extension only answers if its service worker can run and its tap
+	// handles this message
 async function askToReload(
 	id)
 {
 	const timeout = new Promise((resolve) => setTimeout(resolve, ReloadAnswerTimeout, false));
 
 	try {
-		return await Promise.race([chrome.runtime.sendMessage(id, { type: "reload" }), timeout]) === true;
+		return await Promise.race([chrome.runtime.sendMessage(id, createReloadMessage()), timeout]) === true;
 	} catch {
 		return false;
 	}
