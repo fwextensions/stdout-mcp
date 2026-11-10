@@ -4,6 +4,7 @@ const RegisteredPrefix = "registered:";
 	// waking a service worker can take a moment
 const ReloadAnswerTimeout = 5 * 1000;
 const RestartTimeout = 10 * 1000;
+const WakeTimeout = 5 * 1000;
 
 	// avoids writing to storage for every message once a sender is recorded
 const registeredIDs = new Set();
@@ -43,7 +44,8 @@ export function notifyRegistered(
 }
 
 function waitForRestart(
-	id)
+	id,
+	timeout = RestartTimeout)
 {
 	return new Promise((resolve) => {
 		const finish = (restarted) => {
@@ -51,7 +53,7 @@ function waitForRestart(
 			restartWaiters.delete(id);
 			resolve(restarted);
 		};
-		const timer = setTimeout(() => finish(false), RestartTimeout);
+		const timer = setTimeout(() => finish(false), timeout);
 
 		restartWaiters.set(id, finish);
 	});
@@ -69,6 +71,31 @@ async function askToReload(
 	} catch {
 		return false;
 	}
+}
+
+	// our message wakes a sleeping worker, but it fails if the worker hasn't
+	// called stdout() by the time Chrome delivers it, such as when stdout() runs
+	// after a top-level await.  the worker keeps starting, so ask again as soon as
+	// it registers, without waiting on the first ask, which may not fail right
+	// away.  start waiting before that ask, since the worker can register first.
+async function askWorkerToReload(
+	id)
+{
+	const registered = waitForRestart(id, WakeTimeout);
+	const answered = askToReload(id);
+		// a failed ask says nothing about the worker, so keep waiting for it to register
+	const outcome = await Promise.race([
+		registered,
+		answered.then((didAnswer) => didAnswer ? "answered" : registered),
+	]);
+
+	if (outcome === "answered") {
+		restartWaiters.get(id)?.(false);
+
+		return true;
+	}
+
+	return outcome && askToReload(id);
 }
 
 async function confirmFullReload(
@@ -123,14 +150,24 @@ async function reloadExtension(
 		throw new Error(`${name} is turned off in Chrome, so it can't be reloaded. Ask the user to turn it on.`);
 	}
 
-	if (reloadManifest && await askToReload(id)) {
+	if (reloadManifest && await askWorkerToReload(id)) {
 		return { id, name, ...await confirmFullReload(id) };
 	}
 
 		// turning an unpacked extension off and on runs its code again from disk.
 		// Chrome keeps the manifest it already read, though.
 	await chrome.management.setEnabled(id, false);
+
+		// wait until the old worker is gone, so that only the new one can count.
+		// if the message above didn't get an answer, this restart may still leave a
+		// worker that can give one.
+	const restarted = reloadManifest && waitForRestart(id);
+
 	await chrome.management.setEnabled(id, true);
+
+	if (await restarted && await askToReload(id)) {
+		return { id, name, ...await confirmFullReload(id) };
+	}
 
 	return { id, name, manifest: reloadManifest ? ManifestStatus.Unreachable : ManifestStatus.Skipped };
 }

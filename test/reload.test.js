@@ -1,0 +1,255 @@
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import { setImmediate as nextTurn } from "node:timers/promises";
+import { notifyRegistered, runCommand } from "../extension/commands.js";
+import { CommandNames, ManifestStatus } from "../extension/link.js";
+import stdout from "../lib/stdout.js";
+
+const ID = "abc";
+const WakeTimeout = 5 * 1000;
+const RestartTimeout = 10 * 1000;
+
+	// a stand-in for Chrome and one unpacked extension.  the first message to a
+	// sleeping worker always fails, since its listener doesn't exist yet.
+function installChrome(
+	t,
+	{
+		awake = false,
+		wakes = false,
+		answersAfterWake = true,
+		registersBeforeFailing = false,
+		firstAskHangs = false,
+		registersBeforeAnswering = false,
+		answersAfterRestart = true,
+		registersAfterRestart = true,
+	} = {})
+{
+	const calls = { asks: 0, toggles: [] };
+	let listening = awake;
+	let woken = false;
+	let reloading = false;
+
+	const wake = (id) => {
+		listening = answersAfterWake;
+		notifyRegistered({ id });
+	};
+
+		// never let the answer and restart timers run for real
+	t.mock.timers.enable({ apis: ["setTimeout"] });
+	globalThis.chrome = {
+		management: {
+			getAll: async () => [{ id: ID, name: "Test", installType: "development", enabled: true }],
+			get: async () => ({ id: ID, enabled: true, version: "1.2.3" }),
+			setEnabled: async (id, enabled) => {
+				calls.toggles.push(enabled);
+				listening = enabled && answersAfterRestart;
+
+				if (enabled && registersAfterRestart) {
+					nextTurn().then(() => notifyRegistered({ id }));
+				}
+			},
+		},
+		storage: { local: { get: async () => ({ [`registered:${ID}`]: true }) } },
+		runtime: {
+			sendMessage: async (id, message) => {
+				assert.deepEqual(message, { type: "reload" });
+				calls.asks++;
+
+				if (firstAskHangs && calls.asks === 1) {
+					nextTurn().then(() => wake(id));
+
+					return new Promise(() => {});
+				}
+
+				if (registersBeforeAnswering && calls.asks === 1) {
+					notifyRegistered({ id });
+				}
+
+				if (!listening) {
+					if (wakes && !woken) {
+						woken = true;
+
+						if (registersBeforeFailing) {
+							wake(id);
+						} else {
+							nextTurn().then(() => wake(id));
+						}
+					}
+
+					throw new Error("Could not establish connection. Receiving end does not exist.");
+				}
+
+					// like the library, only reload once however many times we're asked
+				if (!reloading) {
+					reloading = true;
+					nextTurn().then(() => notifyRegistered({ id }));
+				}
+
+				return true;
+			},
+		},
+	};
+	t.after(() => delete globalThis.chrome);
+
+	return calls;
+}
+
+const reload = (reloadManifest) => runCommand({
+	name: CommandNames.Reload,
+	args: { extension: ID, reloadManifest },
+});
+
+	// let everything waiting on promises catch up, then move the fake clock
+async function advance(
+	t,
+	ms)
+{
+	for (let i = 0; i < 20; i++) {
+		await nextTurn();
+	}
+
+	t.mock.timers.tick(ms);
+}
+
+test("asks an awake worker to reload, without restarting it first", async (t) => {
+	const calls = installChrome(t, { awake: true });
+	const { result } = await reload(true);
+
+	assert.equal(result.manifest, ManifestStatus.Reloaded);
+	assert.equal(result.version, "1.2.3");
+	assert.equal(calls.asks, 1);
+	assert.deepEqual(calls.toggles, []);
+});
+
+test("asks again once a sleeping worker wakes and registers, without a restart", async (t) => {
+	const calls = installChrome(t, { wakes: true });
+	const { result } = await reload(true);
+
+	assert.equal(result.manifest, ManifestStatus.Reloaded);
+	assert.equal(calls.asks, 2);
+	assert.deepEqual(calls.toggles, []);
+});
+
+test("doesn't miss a worker that registers before the first ask fails", async (t) => {
+	const calls = installChrome(t, { wakes: true, registersBeforeFailing: true });
+	const { result } = await reload(true);
+
+	assert.equal(result.manifest, ManifestStatus.Reloaded);
+	assert.equal(calls.asks, 2);
+	assert.deepEqual(calls.toggles, []);
+});
+
+test("asks again as soon as the worker registers, even if the first ask hasn't finished", async (t) => {
+	const calls = installChrome(t, { firstAskHangs: true });
+	const { result } = await reload(true);
+
+	assert.equal(result.manifest, ManifestStatus.Reloaded);
+	assert.equal(calls.asks, 2);
+	assert.deepEqual(calls.toggles, []);
+});
+
+test("still confirms the restart when a worker registers and answers the first ask", async (t) => {
+	const calls = installChrome(t, { awake: true, registersBeforeAnswering: true });
+	const { result } = await reload(true);
+
+	assert.equal(result.manifest, ManifestStatus.Reloaded);
+	assert.equal(calls.asks, 2);
+	assert.deepEqual(calls.toggles, []);
+});
+
+test("restarts a worker that wakes but can't answer, then asks again", async (t) => {
+	const calls = installChrome(t, { wakes: true, answersAfterWake: false });
+	const { result } = await reload(true);
+
+	assert.equal(result.manifest, ManifestStatus.Reloaded);
+	assert.equal(calls.asks, 3);
+	assert.deepEqual(calls.toggles, [false, true]);
+});
+
+test("restarts a worker that doesn't wake, then asks again", async (t) => {
+	const calls = installChrome(t);
+	const pending = reload(true);
+
+	await advance(t, WakeTimeout);
+
+	const { result } = await pending;
+
+	assert.equal(result.manifest, ManifestStatus.Reloaded);
+	assert.equal(calls.asks, 2);
+	assert.deepEqual(calls.toggles, [false, true]);
+});
+
+test("reports an extension that restarts but still doesn't answer", async (t) => {
+	const calls = installChrome(t, { answersAfterRestart: false });
+	const pending = reload(true);
+
+	await advance(t, WakeTimeout);
+
+	const { result } = await pending;
+
+	assert.equal(result.manifest, ManifestStatus.Unreachable);
+	assert.equal(calls.asks, 2);
+	assert.deepEqual(calls.toggles, [false, true]);
+});
+
+test("doesn't ask again when the worker never starts", async (t) => {
+	const calls = installChrome(t, { registersAfterRestart: false });
+	const pending = reload(true);
+
+	await advance(t, WakeTimeout);
+	await advance(t, RestartTimeout);
+
+	const { result } = await pending;
+
+	assert.equal(result.manifest, ManifestStatus.Unreachable);
+	assert.equal(calls.asks, 1);
+	assert.deepEqual(calls.toggles, [false, true]);
+});
+
+	// stdout() only sets itself up once per module, so this is its only test here
+test("the library listens before registering, and only reloads once", (t) => {
+	const order = [];
+	let listener;
+	let reloads = 0;
+
+	t.mock.timers.enable({ apis: ["setTimeout"] });
+	globalThis.ServiceWorkerGlobalScope = class {};
+	globalThis.chrome = {
+		runtime: {
+			getManifest: () => ({ name: "Test" }),
+			reload: () => reloads++,
+			sendMessage: async () => order.push("register"),
+			onMessageExternal: {
+				addListener: (handler) => {
+					order.push("listen");
+					listener = handler;
+				},
+			},
+		},
+	};
+	t.after(() => {
+		delete globalThis.chrome;
+		delete globalThis.ServiceWorkerGlobalScope;
+	});
+
+	stdout({ id: ID, filename: "sw.js", wrapConsole: false });
+	assert.deepEqual(order, ["listen", "register"]);
+
+	const answers = [];
+
+	listener({ type: "reload" }, { id: ID }, (answer) => answers.push(answer));
+	listener({ type: "reload" }, { id: ID }, (answer) => answers.push(answer));
+	t.mock.timers.tick(1000);
+
+	assert.deepEqual(answers, [true, true]);
+	assert.equal(reloads, 1);
+});
+
+test("only restarts the extension when the manifest isn't wanted", async (t) => {
+	const calls = installChrome(t, { awake: true });
+	const { result } = await reload(false);
+
+	assert.equal(result.manifest, ManifestStatus.Skipped);
+	assert.equal(calls.asks, 0);
+	assert.deepEqual(calls.toggles, [false, true]);
+});
