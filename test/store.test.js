@@ -36,15 +36,81 @@ test("starts over when the buffer ID changes", () => {
 test("queries the tail or pages forward from a cursor", () => {
 	const store = new LogStore();
 
-	store.ingest({ bufferId: "a", syncPosition: 0, entries: [1, 2, 3, 4, 5].map((seq) => entry(seq)) });
+	store.ingest({ bufferId: "a", syncPosition: 0, entries: [entry(1)] });
+
+	const afterFirst = store.getCursor();
+
+	store.ingest({ bufferId: "a", syncPosition: 1, entries: [2, 3, 4, 5].map((seq) => entry(seq)) });
 	assert.deepEqual(store.query({ limit: 2 }).entries.map(({ seq }) => seq), [4, 5]);
-	assert.deepEqual(store.query({ after: 1, limit: 2 }).entries.map(({ seq }) => seq), [2, 3]);
-	assert.deepEqual(store.query({ after: 5 }).entries, []);
 
-	const reset = store.query({ after: 99, limit: 1 });
+	const page = store.query({ after: afterFirst, limit: 2 });
 
-	assert.equal(reset.cursorReset, true);
-	assert.deepEqual(reset.entries.map(({ seq }) => seq), [5]);
+	assert.deepEqual(page.entries.map(({ seq }) => seq), [2, 3]);
+	assert.equal(page.hasMore, true);
+
+	const lastPage = store.query({ after: page.cursor, limit: 10 });
+
+	assert.deepEqual(lastPage.entries.map(({ seq }) => seq), [4, 5]);
+	assert.equal(lastPage.hasMore, false);
+	assert.deepEqual(store.query({ after: lastPage.cursor }).entries, []);
+	assert.equal(lastPage.cursor, store.getCursor());
+});
+
+test("the cursor from a filtered read skips the entries that didn't match", () => {
+	const store = new LogStore();
+
+	store.ingest({ bufferId: "a", syncPosition: 0, entries: [entry(1, ["match"]), entry(2, ["other"])] });
+
+	const { entries, cursor } = store.query({ filter: { search: "match" } });
+
+	assert.equal(entries.length, 1);
+	assert.deepEqual(store.query({ after: cursor }).entries, []);
+});
+
+test("the cursor from a read around an entry continues after the last one shown", () => {
+	const store = new LogStore();
+
+	store.ingest({ bufferId: "a", syncPosition: 0, entries: [1, 2, 3, 4, 5].map((seq) => entry(seq)) });
+
+	const { cursor, hasMore } = store.query({ around: 2, limit: 3 });
+
+	assert.equal(hasMore, false);
+	assert.deepEqual(store.query({ after: cursor }).entries.map(({ seq }) => seq), [4, 5]);
+});
+
+for (const [name, getCursor] of [
+	["an earlier daemon", () => "old-run:2"],
+	["garbage", () => "garbage"],
+	["a position this store never reached", (store) => store.createCursor(99)],
+]) {
+	test(`a cursor from ${name} returns the latest entries and says so`, () => {
+		const store = new LogStore();
+
+		store.ingest({ bufferId: "a", syncPosition: 0, entries: [1, 2, 3].map((seq) => entry(seq)) });
+
+		const result = store.query({ after: getCursor(store), limit: 1 });
+
+		assert.equal(result.cursorReset, true);
+		assert.equal(result.hasMore, false);
+		assert.deepEqual(result.entries.map(({ seq }) => seq), [3]);
+		assert.equal(result.cursor, store.getCursor());
+	});
+}
+
+test("a cursor from before the buffer was recreated still works", () => {
+	const store = new LogStore();
+
+	store.ingest({ bufferId: "a", syncPosition: 0, entries: [entry(1), entry(2)] });
+
+	const cursor = store.getCursor();
+
+	store.ingest({ bufferId: "b", syncPosition: 0, entries: [] });
+	store.ingest({ bufferId: "b", syncPosition: 0, entries: [entry(1, ["new buffer"])] });
+
+	const result = store.query({ after: cursor });
+
+	assert.equal(result.cursorReset, false);
+	assert.deepEqual(result.entries.map(({ seq, text }) => [seq, text]), [[3, "new buffer"]]);
 });
 
 test("filters by level, extension, filename and search", () => {
@@ -86,10 +152,52 @@ test("waits for a matching entry", async () => {
 	assert.deepEqual(result.entries.map(({ seq }) => seq), [3]);
 	assert.equal(store.waiters.size, 0);
 
+	assert.equal(result.cursor, store.getCursor());
+
 	const timedOut = await store.wait({ filter: { search: "never" }, timeoutMs: 20 }).promise;
 
 	assert.equal(timedOut.timedOut, true);
+	assert.equal(timedOut.cursor, store.getCursor());
 	assert.equal(store.waiters.size, 0);
+});
+
+test("a wait with a current cursor returns entries it already has", async () => {
+	const store = new LogStore();
+
+	store.ingest({ bufferId: "a", syncPosition: 0, entries: [entry(1)] });
+
+	const after = store.getCursor();
+
+	store.ingest({ bufferId: "a", syncPosition: 1, entries: [entry(2, ["ready"]), entry(3)] });
+
+	const result = await store.wait({ after, filter: { search: "ready" }, timeoutMs: 1000 }).promise;
+
+	assert.equal(result.timedOut, false);
+	assert.equal(result.cursorReset, false);
+	assert.deepEqual(result.entries.map(({ seq }) => seq), [2]);
+	assert.deepEqual(store.query({ after: result.cursor }).entries.map(({ seq }) => seq), [3]);
+});
+
+test("a wait with a stale cursor ignores old entries and says so", async () => {
+	const store = new LogStore();
+
+	store.ingest({ bufferId: "a", syncPosition: 0, entries: [entry(1, ["ready"])] });
+
+	const { promise } = store.wait({ after: "old-run:0", filter: { search: "ready" }, timeoutMs: 1000 });
+
+	store.ingest({ bufferId: "a", syncPosition: 1, entries: [entry(2, ["ready again"])] });
+
+	const result = await promise;
+
+	assert.equal(result.cursorReset, true);
+	assert.equal(result.timedOut, false);
+	assert.deepEqual(result.entries.map(({ seq }) => seq), [2]);
+
+	const timedOut = await store.wait({ after: "old-run:0", filter: { search: "ready" }, timeoutMs: 10 }).promise;
+
+	assert.equal(timedOut.cursorReset, true);
+	assert.equal(timedOut.timedOut, true);
+	assert.deepEqual(timedOut.entries, []);
 });
 
 test("renumbers entries and adds marks between them", () => {
@@ -97,10 +205,11 @@ test("renumbers entries and adds marks between them", () => {
 
 	store.ingest({ bufferId: "a", syncPosition: 0, entries: [entry(7), entry(8)] });
 
-	const mark = store.addMark("repro start");
+	const { entry: mark, cursor } = store.addMark("repro start");
 
 	assert.deepEqual(store.ingest({ bufferId: "a", syncPosition: 8, entries: [entry(9)] }), { syncPosition: 9 });
 	assert.equal(mark.seq, 3);
+	assert.deepEqual(store.query({ after: cursor }).entries.map(({ seq }) => seq), [4]);
 	assert.deepEqual(store.entries.map(({ seq, text }) => [seq, text]),
 		[[1, "message 7"], [2, "message 8"], [3, "repro start"], [4, "message 9"]]);
 		// marks show up whatever the filter, but not as a source
@@ -113,12 +222,13 @@ test("doesn't end a wait with a mark", async () => {
 
 	store.ingest({ bufferId: "a", syncPosition: 0, entries: [entry(1)] });
 
+	const after = store.getCursor();
 	const { promise } = store.wait({ filter: { search: "" }, timeoutMs: 1000 });
 
 	store.addMark("mark");
 	store.ingest({ bufferId: "a", syncPosition: 1, entries: [entry(2)] });
 	assert.deepEqual((await promise).entries.map(({ text }) => text), ["message 2"]);
-	assert.deepEqual((await store.wait({ after: 1, timeoutMs: 10 }).promise).entries.map(({ text }) => text),
+	assert.deepEqual((await store.wait({ after, timeoutMs: 10 }).promise).entries.map(({ text }) => text),
 		["message 2"]);
 });
 

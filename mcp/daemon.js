@@ -16,7 +16,7 @@ const MaxBodySize = 16 * 1024 * 1024;
 const Handled = Symbol("handled");
 
 const store = new LogStore();
-const commands = new CommandQueue();
+const commands = new CommandQueue({ getCursor: () => store.getCursor() });
 const handleExtensionRequest = createExtensionRoutes({ store, commands });
 const bootId = randomUUID();
 const codeVersion = getCodeVersion();

@@ -38,5 +38,5 @@ The last entry from the stdout extension's buffer that the daemon holds, numbere
 _Avoid_: maxSeq, extensionSeq, serverSeq, afterSeq
 
 **Cursor**:
-A place in the daemon's own numbering of entries, which agents pass back to read only what's newer. It's unrelated to the sync position.
+A place in the daemon's own ordering of entries, which agents pass back to read only what's newer. It's only good for the run of the daemon that issued it, and it's unrelated to the sync position.
 _Avoid_: maxSeq, offset

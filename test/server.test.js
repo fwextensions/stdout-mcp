@@ -57,6 +57,8 @@ async function callTool(
 	return result.content[0].text;
 }
 
+const cursorIn = (text) => text.match(/cursor: (\S+)/)[1];
+
 const entry = (args, method = "log", extra = {}) => ({
 	time: Date.now(),
 	extensionId: "abcdefghijklmnopabcdefghijklmnop",
@@ -152,10 +154,10 @@ test("returns ingested logs with a cursor", async () => {
 
 	assert.match(text, /^--- \d{4}-\d\d-\d\d, times in UTC[+-]\d\d:\d\d ---\n#1 \d\d:\d\d:\d\d\.\d{3} \[log\] Test Extension\/sw\.js: worker started/);
 	assert.match(text, /#2 \S+ \+\d+ms \[error\] Test Extension\/sw\.js: request failed TypeError: boom\n {8}at foo/);
-	assert.match(text, /cursor: 2/);
+	assert.match(text, /cursor: \w+:2/);
 	assert.doesNotMatch(text, /Note:/);
 	assert.match(await callTool("get_logs", { levels: ["error"] }), /^#2 /m);
-	assert.match(await callTool("get_logs", { after: 2 }), /No matching log entries/);
+	assert.match(await callTool("get_logs", { after: cursorIn(text) }), /No matching log entries/);
 	assert.match(await callTool("list_sources"), /Test Extension \(abcdefghijklmnopabcdefghijklmnop\): 2 entries.*files: sw\.js \(2\)/);
 });
 
@@ -169,11 +171,23 @@ test("waits for a new matching log", async () => {
 
 	assert.match(text, /^#4 .*now ready/m);
 	assert.doesNotMatch(text, /#3/);
-	assert.match(text, /cursor: 4/);
+	assert.match(text, /cursor: \w+:4/);
 	assert.match(
 		await callTool("wait_for_log", { pattern: "never", timeoutSeconds: 1 }),
 		/No matching log entry within 1 seconds/
 	);
+});
+
+test("says when a cursor is from before the MCP server restarted", async () => {
+	const logs = await callTool("get_logs", { after: "old-run:1", limit: 1 });
+
+	assert.match(logs, /^The MCP server restarted since that cursor was issued, so it no longer applies\. These are the latest entries\.\n\n--- .* ---\n#4 /);
+
+	const waited = await callTool("wait_for_log", { after: "old-run:0", pattern: "now ready", timeoutSeconds: 1 });
+
+	assert.match(waited, /^The MCP server restarted since that cursor was issued, so this only waited for new entries\./);
+	assert.match(waited, /No matching log entry within 1 seconds/);
+	assert.doesNotMatch(waited, /#4 /);
 });
 
 test("reports bad patterns as tool errors", async () => {
@@ -188,13 +202,13 @@ test("marks the log and shows page loads and time deltas", async () => {
 	const marked = await callTool("mark", { label: "repro start" });
 
 	assert.match(marked, /Added this line:\n--- .* ---\n#5 \S+ --- mark: repro start ---/);
-	assert.match(marked, /cursor: 5/);
+	assert.match(marked, /cursor: \w+:5/);
 	await send(
 		{ ...entry(["first"], "log", { loadId: "load1" }), time },
 		{ ...entry(["second"], "log", { loadId: "load1" }), time: time + 1500 },
 	);
 
-	const text = await callTool("get_logs", { after: 5 });
+	const text = await callTool("get_logs", { after: cursorIn(marked) });
 
 	assert.match(text, /^--- Test Extension\/sw\.js loaded ---\n#6 \S+ \[log\] .*first\n#7 \S+ \+1\.5s \[log\] .*second/m);
 		// times of day are local, like in the stdout console
@@ -239,7 +253,7 @@ test("reloads an extension through the stdout extension", async () => {
 	const text = await answerReload({ result: { id: "abc", name: "Test Extension", manifest: "skipped" } });
 
 	assert.match(text, /Reloaded the code of Test Extension \(abc\)\. manifest\.json was not read again/);
-	assert.match(text, /cursor: 8 \(pass as `after` to get the entries logged since the reload\)/);
+	assert.match(text, /cursor: \w+:8 \(pass as `after` to get the entries logged since the reload\)/);
 });
 
 test("says whether reloading the manifest worked", async () => {
@@ -269,7 +283,7 @@ test("the reload cursor includes logs that arrive before the extension gets the 
 	const commands = await link.pollCommands();
 
 	await link.sendCommandResult(commands[0].id, { result: { id: "abc", name: "Test Extension", manifest: "skipped" } });
-	assert.match(await call, /cursor: 9 /);
+	assert.match(await call, /cursor: \w+:9 /);
 });
 
 test("resends from the daemon's sync position when the extension's is wrong", async () => {

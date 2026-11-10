@@ -29,7 +29,7 @@ function createDaemon(
 	commandPollTime = ShortPoll)
 {
 	const store = new LogStore();
-	const commands = new CommandQueue();
+	const commands = new CommandQueue({ getCursor: () => store.getCursor() });
 
 	return { store, commands, handle: createExtensionRoutes({ store, commands, commandPollTime }) };
 }
@@ -199,16 +199,16 @@ test("sends nothing when agent mode is off", async (t) => {
 
 test("sends the whole backlog before polling for commands", async (t) => {
 	const world = setUp(t, { commandPollTime: LongPoll });
-	let storedAtDelivery;
-	const { promise } = world.daemon.commands.send(CommandNames.Reload, {}, 2000, () => {
-		storedAtDelivery = world.storedCount();
-	});
+	const { promise } = world.daemon.commands.send(CommandNames.Reload, {}, 2000);
 
 	world.log(BatchSize * 2 + 1);
 	world.connection.start();
 
-	assert.equal((await promise).result, "ran");
-	assert.equal(storedAtDelivery, BatchSize * 2 + 1);
+	const { result, cursor } = await promise;
+
+	assert.equal(result, "ran");
+	assert.equal(world.storedCount(), BatchSize * 2 + 1);
+	assert.equal(cursor, world.daemon.store.getCursor());
 });
 
 test("runs commands and reports their results", async (t) => {

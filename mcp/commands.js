@@ -3,7 +3,9 @@
 /** @typedef {import("../extension/link.js").Command} Command */
 
 /**
- * @typedef {import("../extension/link.js").CommandResult & { timedOut?: boolean, cancelled?: boolean }} CommandOutcome
+ * @typedef {import("../extension/link.js").CommandResult & { cursor?: string, timedOut?: boolean, cancelled?: boolean }} CommandOutcome
+ * `cursor` is for reading what was logged after the extension picked up the
+ * command.  It's left out if the command never got a result.
  */
 
 /**
@@ -13,10 +15,15 @@
  */
 export class CommandQueue
 {
-	constructor()
+	/**
+	 * @param {{ getCursor: () => string }} options
+	 */
+	constructor(
+		{ getCursor })
 	{
+		this.getCursor = getCursor;
 		this.nextId = 1;
-			/** @type {{ command: Command, onDelivered?: () => void }[]} */
+			/** @type {{ command: Command, cursor?: string }[]} */
 		this.pending = [];
 			/** @type {Map<number, (outcome: CommandOutcome) => void>} */
 		this.outcomes = new Map();
@@ -30,33 +37,33 @@ export class CommandQueue
 	 * @param {string} name
 	 * @param {object} args
 	 * @param {number} timeoutMs
-	 * @param {() => void} [onDelivered]  Called when the extension picks it up.
 	 * @returns {{ promise: Promise<CommandOutcome>, cancel: () => void }}
 	 */
 	send(
 		name,
 		args,
-		timeoutMs,
-		onDelivered)
+		timeoutMs)
 	{
 		const command = { id: this.nextId++, name, args };
+		/** @type {{ command: Command, cursor?: string }} */
+		const item = { command };
 		let cancel;
 		const promise = new Promise((resolve) => {
 				// taking the command out of the queue keeps one that timed out from
 				// running later, when the agent no longer expects it
 			const finish = (outcome) => {
 				clearTimeout(timer);
-				this.pending = this.pending.filter((pending) => pending.command !== command);
+				this.pending = this.pending.filter((pending) => pending !== item);
 				this.outcomes.delete(command.id);
 				resolve(outcome);
 			};
 			const timer = setTimeout(() => finish({ timedOut: true }), timeoutMs);
 
 			cancel = () => finish({ cancelled: true });
-			this.outcomes.set(command.id, finish);
+			this.outcomes.set(command.id, (outcome) => finish({ ...outcome, cursor: item.cursor }));
 		});
 
-		this.pending.push({ command, onDelivered });
+		this.pending.push(item);
 		this.deliver();
 
 		return { promise, cancel };
@@ -111,9 +118,12 @@ export class CommandQueue
 	{
 		if (this.poller && this.pending.length) {
 			const pending = this.pending;
+				// the extension sends its backlog before it picks up a command, which
+				// matters when the daemon has just started and has no logs yet
+			const cursor = this.getCursor();
 
 			this.pending = [];
-			pending.forEach(({ onDelivered }) => onDelivered?.());
+			pending.forEach((item) => item.cursor = cursor);
 			this.poller(pending.map(({ command }) => command));
 		}
 	}

@@ -358,7 +358,7 @@ export function createMcpServer(
 				+ "recent matching entries. With `after`, returns the entries following that cursor, "
 				+ "oldest first. With `around`, returns the entries before and after that one.",
 			inputSchema: z.object({
-				after: z.number().int().optional()
+				after: z.string().optional()
 					.describe("Cursor from a previous result. Only entries after it are returned."),
 				around: z.number().int().optional()
 					.describe("Entry number to center the results on, such as one found with `search`. "
@@ -372,26 +372,20 @@ export function createMcpServer(
 		async ({ after, around, limit = around === undefined ? 100 : 21, since, ...filter }) => {
 			try {
 				validateSearch(filter.search);
-				const result = {
-					...getStatus(),
-					...store.query({ after, around, limit, filter: { ...filter, since: parseSince(since) } }),
-				};
-				const { entries } = result;
-					// paging forward stops at the limit, so continue from the last entry.
-					// otherwise, every entry up to maxSeq has been considered.
-				const hasMore = after !== undefined && around === undefined
-					&& !result.cursorReset && entries.length === limit;
-				const cursor = hasMore || (around !== undefined && entries.length)
-					? entries.at(-1).seq
-					: result.maxSeq;
+				const { entries, cursor, cursorReset, hasMore } = store.query({
+					after,
+					around,
+					limit,
+					filter: { ...filter, since: parseSince(since) },
+				});
 
 				return textResult(
-					result.cursorReset && "The stdout extension's log buffer was reset, so the cursor no longer applies. These are the latest entries.",
+					cursorReset && "The MCP server restarted since that cursor was issued, so it no longer applies. These are the latest entries.",
 					entries.length ? formatEntries(entries) : "No matching log entries.",
 					hasMore && "There may be more entries after these.",
 					getMixedSourcesNote(entries),
 					`cursor: ${cursor} (pass as \`after\` to get only newer entries)`,
-					getConnectionNote(result)
+					getConnectionNote(getStatus())
 				);
 			} catch (error) {
 				return errorResult(error);
@@ -409,7 +403,7 @@ export function createMcpServer(
 			inputSchema: z.object({
 				pattern: z.string()
 					.describe("Case-insensitive regular expression to match against the message text."),
-				after: z.number().int().optional()
+				after: z.string().optional()
 					.describe("Cursor from a previous result. Defaults to the latest entry, so only new logs match."),
 				timeoutSeconds: z.number().min(1).max(120).optional()
 					.describe("How long to wait. Defaults to 30."),
@@ -433,15 +427,15 @@ export function createMcpServer(
 					// that asked goes away
 				ctx.mcpReq.signal.addEventListener("abort", cancel);
 
-				const result = { ...await promise, ...getStatus() };
-				const cursor = result.entries.at(-1)?.seq ?? result.maxSeq;
+				const { entries, cursor, cursorReset, timedOut } = await promise;
 
 				return textResult(
-					result.timedOut
+					cursorReset && "The MCP server restarted since that cursor was issued, so this only waited for new entries. A match logged before this call could have been missed.",
+					timedOut
 						? `No matching log entry within ${timeoutSeconds} seconds.`
-						: formatEntries(result.entries),
+						: formatEntries(entries),
 					`cursor: ${cursor} (pass as \`after\` to get only newer entries)`,
-					getConnectionNote(result)
+					getConnectionNote(getStatus())
 				);
 			} catch (error) {
 				return errorResult(error);
@@ -463,12 +457,12 @@ export function createMcpServer(
 		},
 		async ({ label = "mark" }) => {
 			try {
-				const mark = { ...store.addMark(label), ...getStatus() };
+				const { entry, cursor } = store.addMark(label);
 
 				return textResult(
-					`Added this line:\n${formatEntries([mark])}`,
-					`cursor: ${mark.seq} (pass as \`after\` to get the entries logged since the mark)`,
-					getConnectionNote(mark)
+					`Added this line:\n${formatEntries([entry])}`,
+					`cursor: ${cursor} (pass as \`after\` to get the entries logged since the mark)`,
+					getConnectionNote(getStatus())
 				);
 			} catch (error) {
 				return errorResult(error);
@@ -501,16 +495,11 @@ export function createMcpServer(
 					throw new Error(`Can't reload ${extension} right now. ${getConnectionNote(status)}`);
 				}
 
-					// the extension finishes sending its backlog before it picks up a
-					// command, which matters when the daemon has just started and has
-					// no logs yet
-				let cursor;
-				const { promise, cancel } = commands.send(CommandNames.Reload, { extension, reloadManifest }, ReloadTimeout,
-					() => cursor = getStatus().maxSeq);
+				const { promise, cancel } = commands.send(CommandNames.Reload, { extension, reloadManifest }, ReloadTimeout);
 
 				ctx.mcpReq.signal.addEventListener("abort", cancel);
 
-				const { result, error, timedOut, cancelled } = await promise;
+				const { result, error, timedOut, cancelled, cursor } = await promise;
 
 				if (timedOut) {
 					throw new Error(`The stdout extension didn't respond within ${ReloadTimeout / 1000} seconds. `

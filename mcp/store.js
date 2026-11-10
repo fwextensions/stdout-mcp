@@ -1,4 +1,5 @@
 // @ts-check
+import { randomBytes } from "node:crypto";
 import { formatArgs } from "./format.js";
 
 const DefaultMaxEntries = 20000;
@@ -48,6 +49,10 @@ function createMatcher(
  * Holds a copy of the log entries buffered by the stdout extension, which sends
  * them in order of their sequence numbers.  Entries are renumbered as they
  * arrive, so that marks added by an agent can go between them.
+ *
+ * Reads hand out cursors, which are opaque to everything else.  A cursor only
+ * means something to the store that issued it, since a restarted daemon numbers
+ * the same entries differently.
  */
 export class LogStore
 {
@@ -55,12 +60,16 @@ export class LogStore
 		{ maxEntries = DefaultMaxEntries } = {})
 	{
 		this.maxEntries = maxEntries;
+		this.runId = randomBytes(2).toString("hex");
 		this.bufferId = null;
 		this.lastIngestAt = 0;
 			// the Extension Link version the stdout extension last sent, which is 0
 			// if it predates them, or null if we haven't heard from it
 		this.extensionLinkVersion = null;
 		this.waiters = new Set();
+			// the last sequence number we've assigned.  this keeps counting when the
+			// buffer is reset, so that cursors from before then still work.
+		this.maxSeq = 0;
 		this.reset();
 	}
 
@@ -72,8 +81,6 @@ export class LogStore
 			// the last entry from the extension's buffer that we have, numbered by
 			// the extension
 		this.syncPosition = 0;
-			// the last sequence number we've assigned
-		this.maxSeq = 0;
 		this.sources = new Map();
 		this.loadIds = new Set();
 	}
@@ -146,12 +153,72 @@ export class LogStore
 	 * Add a line that an agent can use to bracket a repro.
 	 *
 	 * @param {string} label
-	 * @returns {object} The new entry.
+	 * @returns {{ entry: object, cursor: string }} The new entry, and a cursor for
+	 * reading what's logged after it.
 	 */
 	addMark(
 		label)
 	{
-		return this.add({ mark: true, time: Date.now(), method: "mark", text: label });
+		const entry = this.add({ mark: true, time: Date.now(), method: "mark", text: label });
+
+		return { entry, cursor: this.createCursor(entry.seq) };
+	}
+
+	/**
+	 * @returns {string} A cursor for reading whatever is logged from now on.
+	 */
+	getCursor()
+	{
+		return this.createCursor(this.maxSeq);
+	}
+
+	/**
+	 * @param {number} seq
+	 * @returns {string}
+	 */
+	createCursor(
+		seq)
+	{
+		return `${this.runId}:${seq}`;
+	}
+
+	/**
+	 * @param {string} cursor
+	 * @returns {number|null} The sequence number it stands for, or null if it
+	 * didn't come from this store.
+	 */
+	readCursor(
+		cursor)
+	{
+		const [runId, position] = String(cursor).split(":");
+		const seq = Number(position);
+
+		return runId === this.runId && Number.isInteger(seq) && seq >= 0 && seq <= this.maxSeq
+			? seq
+			: null;
+	}
+
+	/**
+	 * @param {number} seq
+	 * @param {number} limit
+	 * @param {(entry: object) => boolean} matches
+	 * @returns {object[]} The first matching entries after `seq`.
+	 */
+	entriesAfter(
+		seq,
+		limit,
+		matches)
+	{
+		const start = this.entries.findIndex((entry) => entry.seq > seq);
+		const entries = [];
+
+		for (let i = start; i !== -1 && i < this.entries.length && entries.length < limit; i++) {
+			if (matches(this.entries[i])) {
+				entries.push(this.entries[i]);
+			}
+		}
+
+		return entries;
 	}
 
 	addSource(
@@ -171,35 +238,36 @@ export class LogStore
 	}
 
 	/**
-	 * With `around`, returns up to `limit` matching entries centered on that one.
+	 * With `around`, returns up to `limit` matching entries centered on that entry
+	 * number.  With `after`, returns the entries following that cursor, or the
+	 * latest ones and a true `cursorReset` if the cursor is from an earlier daemon.
+	 * Otherwise, returns the latest entries.
 	 *
-	 * @param {{ after?: number, around?: number, limit?: number, filter?: LogFilter, includeMarks?: boolean }} query
-	 * @returns {{ entries: object[], maxSeq: number, cursorReset: boolean }}
+	 * @param {{ after?: string, around?: number, limit?: number, filter?: LogFilter }} query
+	 * @returns {{ entries: object[], cursor: string, cursorReset: boolean, hasMore: boolean }}
+	 * `cursor` is where to continue from.  `hasMore` means that paging forward
+	 * stopped at the limit.
 	 */
 	query(
-		{ after, around, limit = 100, filter, includeMarks = true } = {})
+		{ after, around, limit = 100, filter } = {})
 	{
-		const matches = createMatcher(filter, includeMarks);
+		const matches = createMatcher(filter);
 
 		if (typeof around === "number") {
-			return { entries: this.around(around, limit, matches), maxSeq: this.maxSeq, cursorReset: false };
+			const entries = this.around(around, limit, matches);
+			const cursor = entries.length ? this.createCursor(entries.at(-1).seq) : this.getCursor();
+
+			return { entries, cursor, cursorReset: false, hasMore: false };
 		}
 
-			// a cursor past the end means the buffer was reset since the caller got
-			// it, so fall back to returning the latest entries
-		const cursorReset = typeof after === "number" && after > this.maxSeq;
+		const position = after === undefined ? null : this.readCursor(after);
 
-		if (typeof after === "number" && !cursorReset) {
-			const start = this.entries.findIndex((entry) => entry.seq > after);
-			const entries = [];
+		if (position !== null) {
+			const entries = this.entriesAfter(position, limit, matches);
+			const hasMore = entries.length === limit;
+			const cursor = hasMore ? this.createCursor(entries.at(-1).seq) : this.getCursor();
 
-			for (let i = start; i !== -1 && i < this.entries.length && entries.length < limit; i++) {
-				if (matches(this.entries[i])) {
-					entries.push(this.entries[i]);
-				}
-			}
-
-			return { entries, maxSeq: this.maxSeq, cursorReset };
+			return { entries, cursor, cursorReset: false, hasMore };
 		}
 
 		const entries = [];
@@ -210,7 +278,7 @@ export class LogStore
 			}
 		}
 
-		return { entries, maxSeq: this.maxSeq, cursorReset };
+		return { entries, cursor: this.getCursor(), cursorReset: after !== undefined, hasMore: false };
 	}
 
 	around(
@@ -249,20 +317,31 @@ export class LogStore
 	}
 
 	/**
-	 * Wait for entries after `after` that match the filter.
+	 * Wait for entries after the `after` cursor that match the filter, or for new
+	 * ones if there's no cursor.  A cursor from an earlier daemon also waits for new
+	 * ones, since its entries can't be told apart from ones the agent has seen, and
+	 * returns a true `cursorReset`.
 	 *
-	 * @param {{ after?: number, limit?: number, filter?: LogFilter, timeoutMs: number }} options
-	 * @returns {{ promise: Promise<{ entries: object[], timedOut: boolean }>, cancel: () => void }}
+	 * @param {{ after?: string, limit?: number, filter?: LogFilter, timeoutMs: number }} options
+	 * @returns {{ promise: Promise<{ entries: object[], cursor: string, cursorReset: boolean, timedOut: boolean }>, cancel: () => void }}
 	 */
 	wait(
-		{ after = this.maxSeq, limit = 100, filter, timeoutMs })
+		{ after, limit = 100, filter, timeoutMs })
 	{
 			// a mark isn't something the extension logged, so it shouldn't end the wait
 		const matches = createMatcher(filter, false);
-		const existing = this.query({ after, limit, filter, includeMarks: false }).entries;
+		const position = after === undefined ? null : this.readCursor(after);
+		const cursorReset = after !== undefined && position === null;
+		const found = (entries) => ({
+			entries,
+			cursor: this.createCursor(entries.at(-1).seq),
+			cursorReset,
+			timedOut: false,
+		});
+		const existing = position === null ? [] : this.entriesAfter(position, limit, matches);
 
 		if (existing.length) {
-			return { promise: Promise.resolve({ entries: existing, timedOut: false }), cancel() {} };
+			return { promise: Promise.resolve(found(existing)), cancel() {} };
 		}
 
 		let cancel;
@@ -272,17 +351,18 @@ export class LogStore
 				this.waiters.delete(waiter);
 				resolve(result);
 			};
+			const giveUp = () => finish({ entries: [], cursor: this.getCursor(), cursorReset, timedOut: true });
 			const waiter = (added) => {
 				const entries = added.filter(matches).slice(0, limit);
 
 				if (entries.length) {
-					finish({ entries, timedOut: false });
+					finish(found(entries));
 				}
 			};
-			const timer = setTimeout(() => finish({ entries: [], timedOut: true }), timeoutMs);
+			const timer = setTimeout(giveUp, timeoutMs);
 
 			this.waiters.add(waiter);
-			cancel = () => finish({ entries: [], timedOut: true });
+			cancel = giveUp;
 		});
 
 		return { promise, cancel };
