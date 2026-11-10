@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { ConnectionStatus, createDaemonConnection } from "../extension/connection.js";
-import { BatchSize, CommandNames, createExtensionLink, LinkRoutes } from "../extension/link.js";
+import { BatchSize, CommandNames, createExtensionLink, LinkRoutes, MaxBatchBytes } from "../extension/link.js";
 import { CommandQueue } from "../mcp/commands.js";
 import { createExtensionRoutes } from "../mcp/extension-routes.js";
 import { LogStore } from "../mcp/store.js";
@@ -58,6 +58,9 @@ function setUp(
 			// set this to a promise to hold up ingest requests until it resolves
 		gate: null,
 		heldAtGate: 0,
+			// set this to make the daemon refuse batches for this reason
+		rejectBatches: null,
+		largestRequest: 0,
 	};
 
 	async function respond(
@@ -82,7 +85,15 @@ function setUp(
 			throw new TypeError("Failed to fetch");
 		}
 
-		return world.daemon.handle(route, body, () => {});
+		const readBody = async () => {
+			if (route === LinkRoutes.Ingest && body.entries.length && world.rejectBatches) {
+				throw new Error(world.rejectBatches);
+			}
+
+			return body;
+		};
+
+		return world.daemon.handle(route, readBody, () => {});
 	}
 
 	const link = createExtensionLink({
@@ -98,6 +109,7 @@ function setUp(
 			try {
 					// a real request always goes through the event loop
 				await new Promise(setImmediate);
+				world.largestRequest = Math.max(world.largestRequest, Buffer.byteLength(body ?? ""));
 
 				return new Response(JSON.stringify(await respond(route, JSON.parse(body ?? "{}"))));
 			} finally {
@@ -127,7 +139,7 @@ function setUp(
 		},
 		delays: { flush: 1, retryAfterFailure: 60 * 1000, fastRetry: 2, ...delays },
 	});
-	world.log = (count = 1) => {
+	world.log = (count = 1, args = ["message"]) => {
 		for (let i = 0; i < count; i++) {
 			world.buffer.push({
 				seq: world.buffer.length + 1,
@@ -136,7 +148,7 @@ function setUp(
 				extensionName: "Test Extension",
 				filename: "sw.js",
 				method: "log",
-				args: ["message"],
+				args,
 			});
 		}
 	};
@@ -434,6 +446,92 @@ test("refuses a command that arrives after agent mode was turned off", async (t)
 
 	assert.match(outcome.error, /turned off/);
 	assert.deepEqual(world.commandsRun, []);
+});
+
+test("delivers entries after a value that looks like a broken value tag", async (t) => {
+	const world = setUp(t);
+	const { promise } = world.daemon.store.wait({ limit: 100, timeoutMs: 2000, filter: { search: "after" } });
+
+	world.log();
+	world.log(1, [{ __type: "Map" }]);
+	world.log(2, ["after"]);
+	world.connection.start();
+	await waitFor(() => world.storedCount() === 4);
+
+	assert.equal(world.daemon.store.entries[1].text, '{__type: "Map"}');
+	assert.equal((await promise).timedOut, false);
+	await waitFor(world.connected);
+});
+
+test("splits a backlog that's too many bytes for one request", async (t) => {
+	const world = setUp(t);
+		// two bytes each in UTF-8, so counting characters would come up short
+	const text = "é".repeat(30 * 1024);
+
+		// one short of a full batch, so only the byte limit says there's more to send
+	world.log(BatchSize - 1, [text]);
+	world.connection.start();
+	await waitFor(() => world.storedCount() === BatchSize - 1);
+
+	assert.ok(world.largestRequest <= MaxBatchBytes, `sent ${world.largestRequest} bytes`);
+	assert.equal(world.ingestsWithEntries, 2);
+	assert.equal(world.daemon.store.entries.at(-1).text, text);
+});
+
+test("sends a note in place of an entry too big for any request", async (t) => {
+	const world = setUp(t);
+
+	world.log();
+	world.log(1, [""]);
+
+		// exactly the limit by itself, which leaves no room for the rest of the request
+	const big = world.buffer.at(-1);
+
+	big.args = ["x".repeat(MaxBatchBytes - Buffer.byteLength(JSON.stringify(big)) - 1)];
+	world.log();
+	world.connection.start();
+	await waitFor(() => world.storedCount() === 3);
+
+	const [, note] = world.daemon.store.entries;
+
+	assert.match(note.text, /this entry was 16\.0 MB, which is too large/);
+	assert.equal(note.method, "log");
+	assert.equal(note.filename, "sw.js");
+	assert.ok(world.largestRequest <= MaxBatchBytes, `sent ${world.largestRequest} bytes`);
+	await waitFor(world.connected);
+});
+
+test("remembers a refused batch until one is accepted", async (t) => {
+	const world = await setUpConnected(t);
+	const { store } = world.daemon;
+
+	world.log();
+	world.rejectBatches = "Request body too large";
+	await world.connection.checkIn();
+
+	assert.equal(store.batchRejection, "Request body too large");
+	assert.equal(world.statuses.at(-1), Looking);
+	assert.equal(world.storedCount(), 0);
+
+	world.rejectBatches = null;
+	await world.connection.checkIn();
+
+	assert.equal(store.batchRejection, null);
+	assert.equal(world.statuses.at(-1), Connected);
+	assert.equal(world.storedCount(), 1);
+});
+
+test("only failed batches count as refused", async () => {
+	const { store, handle } = createDaemon();
+	const unreadable = async () => {
+		throw new Error("Invalid JSON");
+	};
+
+	await assert.rejects(handle(LinkRoutes.CommandResult, unreadable, () => {}));
+	assert.equal(store.batchRejection, null);
+
+	await assert.rejects(handle(LinkRoutes.Ingest, unreadable, () => {}));
+	assert.equal(store.batchRejection, "Invalid JSON");
 });
 
 test("a failed command poll waits for the next sync to change anything", async (t) => {

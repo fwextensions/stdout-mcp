@@ -111,7 +111,7 @@ export function createDaemonConnection(
 			}
 		} catch {
 				// the daemon isn't running, which is the normal state when no agent is
-				// using it
+				// using it.  if it's running and rejected the batch, it tells agents.
 			if (await isStillOn()) {
 				syncPosition = null;
 				lastFailure = Date.now();

@@ -14,6 +14,8 @@ import { CommandNames, LinkVersion, ManifestStatus } from "../extension/link.js"
  * @property {number} startedAt
  * @property {number} lastIngestAt  When the stdout extension last sent entries, or 0.
  * @property {number|null} extensionLinkVersion  The Extension Link version it last sent.
+ * @property {string|null} batchRejection  Why its last batch was refused, until
+ * one is accepted.
  * @property {number} maxSeq
  * @property {number} entryCount
  */
@@ -201,7 +203,7 @@ function parseSince(
 }
 
 function getConnectionNote(
-	{ lastIngestAt, startedAt, extensionLinkVersion })
+	{ lastIngestAt, startedAt, extensionLinkVersion, batchRejection })
 {
 	if (!lastIngestAt) {
 		return `Note: the stdout extension hasn't sent anything since the MCP server started ${formatAge(startedAt)}. `
@@ -212,6 +214,10 @@ function getConnectionNote(
 	if (Date.now() - lastIngestAt > SyncStaleTime) {
 		return `Note: the stdout extension last checked in ${formatAge(lastIngestAt)}, so agent mode may have been turned off, or Chrome may be closed. `
 			+ "Newer logs may be missing.";
+	}
+
+	if (batchRejection) {
+		return `Note: the MCP server couldn't accept the stdout extension's last batch of logs (${batchRejection}), so newer logs are missing.`;
 	}
 
 	if (extensionLinkVersion < LinkVersion) {

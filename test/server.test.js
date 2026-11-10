@@ -3,7 +3,7 @@ import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import { Client } from "@modelcontextprotocol/client";
-import { createExtensionLink, LinkRoutes, LinkVersion } from "../extension/link.js";
+import { createExtensionLink, LinkRoutes, LinkVersion, MaxBatchBytes } from "../extension/link.js";
 import { STDOUT_ID } from "../lib/stdout.js";
 
 const port = 40000 + Math.floor(Math.random() * 10000);
@@ -325,4 +325,15 @@ test("warns when the extension's Extension Link version differs", async () => {
 
 	await send();
 	assert.doesNotMatch(await callTool("get_logs", { limit: 1 }), /Note:/);
+});
+
+test("tells agents when a batch is too big, until one is accepted", async () => {
+	const body = { bufferId, syncPosition, entries: [{ ...entry(["x".repeat(MaxBatchBytes)]), seq: buffer.length + 1 }] };
+
+		// the daemon hangs up without reading the whole request
+	await post(LinkRoutes.Ingest, body).catch(() => {});
+	assert.match(await callTool("get_logs", { limit: 1 }), /couldn't accept the stdout extension's last batch of logs \(Request body too large\)/);
+
+	await send(entry(["after the big one"]));
+	assert.doesNotMatch(await callTool("get_logs", { limit: 1 }), /couldn't accept/);
 });

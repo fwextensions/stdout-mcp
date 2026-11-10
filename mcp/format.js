@@ -1,4 +1,6 @@
 // @ts-check
+import { getValueTag, ValueTag } from "../extension/value-tags.js";
+
 const SubstitutionPattern = /%([sdifoOcj%])/g;
 	// a separate non-global regex for testing, since test() on a global one is
 	// stateful
@@ -34,21 +36,21 @@ export function formatValue(
 		return `[${value.map((item) => formatValue(item)).join(", ")}]`;
 	}
 
-	switch (value.__type) {
-		case "undefined":
+	switch (getValueTag(value)) {
+		case ValueTag.Undefined:
 			return "undefined";
 
-		case "bigint":
+		case ValueTag.BigInt:
 			return `${value.value}n`;
 
-		case "number":
-		case "symbol":
-		case "function":
-		case "RegExp":
-		case "Date":
+		case ValueTag.Number:
+		case ValueTag.Symbol:
+		case ValueTag.Function:
+		case ValueTag.RegExp:
+		case ValueTag.Date:
 			return value.value;
 
-		case "Error": {
+		case ValueTag.Error: {
 			const { __type, name, message, stack, ...rest } = value;
 				// V8 stacks already start with "Name: message"
 			const text = stack || `${name}: ${message}`;
@@ -57,29 +59,24 @@ export function formatValue(
 			return text + extra;
 		}
 
-		case "Map":
+		case ValueTag.Map:
 			return `Map(${value.size}) {${value.entries
 				.map(([key, item]) => `${formatValue(key)} => ${formatValue(item)}`).join(", ")}}`;
 
-		case "Set":
+		case ValueTag.Set:
 			return `Set(${value.size}) {${value.values.map((item) => formatValue(item)).join(", ")}}`;
 
-		case "Circular":
+		case ValueTag.Circular:
 			return "[Circular]";
 
-		case "Truncated":
+		case ValueTag.Truncated:
 			return "[…]";
 
-		case "More":
+		case ValueTag.More:
 			return `…${value.count} more`;
 
-		case undefined:
-			break;
-
-		default:
-			if ("byteLength" in value) {
-				return `${value.__type}(${value.byteLength})`;
-			}
+		case ValueTag.Binary:
+			return `${value.__type}(${value.byteLength})`;
 	}
 
 	const entries = Object.entries(value)

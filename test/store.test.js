@@ -23,6 +23,36 @@ test("accepts only batches that continue from the last entry", () => {
 	assert.equal(store.entries.length, 3);
 });
 
+test("keeps an entry that can't be formatted, and the ones after it", () => {
+	const store = new LogStore();
+	let tooDeep = [];
+
+		// formatting this overflows the stack, but JSON.stringify() doesn't
+	for (let i = 0; i < 50000; i++) {
+		tooDeep = [tooDeep];
+	}
+
+	assert.deepEqual(store.ingest({ bufferId: "a", syncPosition: 0, entries: [entry(1, [tooDeep]), entry(2)] }), { syncPosition: 2 });
+	assert.ok(store.entries[0].text.startsWith("[[[["));
+	assert.equal(store.entries[1].text, "message 2");
+});
+
+test("only a batch that lines up clears a refused batch", () => {
+	const store = new LogStore();
+
+	store.ingest({ bufferId: "a", syncPosition: 0, entries: [entry(1)] });
+	store.recordRejectedBatch("too large");
+
+	store.ingest({ bufferId: "a", syncPosition: null, entries: [] });
+	assert.equal(store.batchRejection, "too large");
+
+	store.ingest({ bufferId: "a", syncPosition: 5, entries: [entry(6)] });
+	assert.equal(store.batchRejection, "too large");
+
+	store.ingest({ bufferId: "a", syncPosition: 1, entries: [] });
+	assert.equal(store.batchRejection, null);
+});
+
 test("starts over when the buffer ID changes", () => {
 	const store = new LogStore();
 

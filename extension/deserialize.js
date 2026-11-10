@@ -1,3 +1,5 @@
+import { getValueTag, ValueTag } from "./value-tags.js";
+
 /**
  * Rebuild the values that the stdout() library converted to send them as JSON,
  * as best we can, so they display naturally in this extension's console.
@@ -16,26 +18,26 @@ export function fromJSONSafe(
 		return value;
 	}
 
-	switch (value.__type) {
-		case "undefined":
+	switch (getValueTag(value)) {
+		case ValueTag.Undefined:
 			return undefined;
 
-		case "bigint":
+		case ValueTag.BigInt:
 			return BigInt(value.value);
 
-		case "number":
+		case ValueTag.Number:
 			return Number(value.value);
 
-		case "Date":
+		case ValueTag.Date:
 			return new Date(value.value);
 
-		case "Map":
+		case ValueTag.Map:
 			return new Map(value.entries.map(([key, item]) => [fromJSONSafe(key), fromJSONSafe(item)]));
 
-		case "Set":
+		case ValueTag.Set:
 			return new Set(value.values.map(fromJSONSafe));
 
-		case "Error": {
+		case ValueTag.Error: {
 			const { __type, name, message, stack, ...rest } = value;
 			const error = new Error(message);
 
@@ -44,19 +46,22 @@ export function fromJSONSafe(
 			return error;
 		}
 
-		case "symbol":
-		case "function":
-		case "RegExp":
+		case ValueTag.Symbol:
+		case ValueTag.Function:
+		case ValueTag.RegExp:
 			return value.value;
 
-		case "Circular":
+		case ValueTag.Circular:
 			return "[Circular]";
 
-		case "Truncated":
+		case ValueTag.Truncated:
 			return "[…]";
 
-		case "More":
+		case ValueTag.More:
 			return `…${value.count} more`;
+
+		case ValueTag.Binary:
+			return `${value.__type}(${value.byteLength})`;
 	}
 
 	return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, fromJSONSafe(item)]));

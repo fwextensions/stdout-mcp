@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { toJSONSafe } from "../lib/stdout.js";
 import { fromJSONSafe } from "../extension/deserialize.js";
+import { getValueTag, ValueTag } from "../extension/value-tags.js";
 import { formatArgs } from "../mcp/format.js";
 
 const format = (...args) => formatArgs(JSON.parse(JSON.stringify(args.map((arg) => toJSONSafe(arg)))));
@@ -60,6 +61,73 @@ test("truncates long strings, big arrays and deep nesting", () => {
 	}
 
 	assert.match(format(deep), /\[…\]/);
+});
+
+for (const tagged of [
+	{ __type: "Map" },
+	{ __type: "Map", size: 1, entries: "nope" },
+	{ __type: "Map", size: 1, entries: [1] },
+	{ __type: "Set" },
+	{ __type: "Set", size: 1, values: {} },
+	{ __type: "bigint" },
+	{ __type: "bigint", value: "abc" },
+	{ __type: "number", value: "12" },
+	{ __type: "Date" },
+	{ __type: "Error" },
+	{ __type: "More" },
+	{ __type: "constructor" },
+	{ __type: "ResourceNotFoundException", message: "from an AWS response" },
+	{ __type: 5, byteLength: 1 },
+]) {
+	test(`treats ${JSON.stringify(tagged)} as an ordinary object`, () => {
+		const copy = JSON.parse(JSON.stringify(tagged));
+		const entries = Object.entries(copy).map(([key, item]) => `${key}: ${JSON.stringify(item).replaceAll(",", ", ")}`);
+
+		assert.equal(getValueTag(copy), null);
+		assert.deepEqual(fromJSONSafe(copy), tagged);
+		assert.equal(formatArgs([copy]), `{${entries.join(", ")}}`);
+	});
+}
+
+test("every value tag the library writes is one the readers accept", () => {
+	const self = {};
+
+	self.self = self;
+
+	let deep = {};
+
+	for (let i = 0; i < 10; i++) {
+		deep = { deep };
+	}
+
+	const encoded = toJSONSafe([
+		undefined, 1n, -1n, NaN, Infinity, -Infinity, Symbol("a"), () => {}, /a/, new Date(0), new Date(NaN),
+		new TypeError("x"), new Map([[1, 2]]), new Set([1]), new ArrayBuffer(1), new Uint8Array(1), self, deep,
+		Array.from({ length: 501 }, () => 0),
+	]);
+	const seen = new Set();
+
+	(function visit(value) {
+		if (value && typeof value === "object") {
+			if (!Array.isArray(value) && "__type" in value) {
+				const tag = getValueTag(value);
+
+				assert.ok(tag, `not accepted: ${JSON.stringify(value)}`);
+				seen.add(tag);
+			}
+
+			Object.values(value).forEach(visit);
+		}
+	})(JSON.parse(JSON.stringify(encoded)));
+
+	assert.deepEqual([...seen].sort(), Object.values(ValueTag).sort());
+});
+
+test("both readers show binary data the same way", () => {
+	const encoded = JSON.parse(JSON.stringify(toJSONSafe(new Uint8Array(4))));
+
+	assert.equal(formatArgs([encoded]), "Uint8Array(4)");
+	assert.equal(fromJSONSafe(encoded), "Uint8Array(4)");
 });
 
 test("rebuilds values for display in the stdout extension's console", () => {

@@ -39,7 +39,14 @@ export const CheckInPeriodSeconds = 30;
 
 export const BatchSize = 500;
 
+	// the largest request body the daemon accepts
+export const MaxBatchBytes = 16 * 1024 * 1024;
+
+	// leaves room for the rest of the request
+const MaxEntriesBytes = MaxBatchBytes - 1024;
 const MaxBatchesPerCatchUp = 50;
+const BytesPerMB = 1024 * 1024;
+const Encoder = new TextEncoder();
 
 /**
  * @typedef {object} IngestRequest
@@ -68,6 +75,44 @@ const MaxBatchesPerCatchUp = 50;
  * @property {any} [result]  What the stdout extension returned.
  * @property {string} [error]  Why the stdout extension couldn't run the command.
  */
+
+function getEntryBytes(
+	entry)
+{
+		// the extra byte is the comma between entries
+	return Encoder.encode(JSON.stringify(entry)).length + 1;
+}
+
+/**
+ * Take as many of these entries as fit in one request.  An entry too big for any
+ * request goes as a note in its place, so that it can't hold up the ones after it.
+ *
+ * @param {object[]} entries
+ * @returns {object[]}
+ */
+function fitInBatch(
+	entries)
+{
+	const batch = [];
+	let bytes = 0;
+
+	for (const entry of entries) {
+		const entryBytes = getEntryBytes(entry);
+		const item = entryBytes > MaxEntriesBytes
+			? { ...entry, args: [`[stdout: this entry was ${(entryBytes / BytesPerMB).toFixed(1)} MB, which is too large to send to the MCP server]`] }
+			: entry;
+
+		bytes += item === entry ? entryBytes : getEntryBytes(item);
+
+		if (bytes > MaxEntriesBytes) {
+			break;
+		}
+
+		batch.push(item);
+	}
+
+	return batch;
+}
 
 /**
  * The stdout extension's half of the conversation.  Each exchange throws if the
@@ -118,9 +163,10 @@ export function createExtensionLink(
 			for (let i = 0; i < MaxBatchesPerCatchUp; i++) {
 					// the first request after the worker starts just asks the daemon what
 					// it already has
-				const entries = position === null
+				const available = position === null
 					? []
 					: await getEntriesAfter(position, BatchSize);
+				const entries = fitInBatch(available);
 				/** @type {IngestRequest} */
 				const batch = { linkVersion: LinkVersion, bufferId, syncPosition: position, entries };
 				/** @type {IngestReply} */
@@ -130,7 +176,7 @@ export function createExtensionLink(
 
 				position = reply.syncPosition;
 
-				if (accepted && entries.length < BatchSize) {
+				if (accepted && available.length < BatchSize && entries.length === available.length) {
 					break;
 				}
 			}

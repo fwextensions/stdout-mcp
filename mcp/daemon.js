@@ -3,6 +3,7 @@ import { createServer } from "node:http";
 import { randomUUID } from "node:crypto";
 import { createMcpHandler } from "@modelcontextprotocol/server";
 import { toNodeHandler } from "@modelcontextprotocol/node";
+import { MaxBatchBytes } from "../extension/link.js";
 import { CommandQueue } from "./commands.js";
 import { ExtensionOrigin, IdleTimeout, Port } from "./constants.js";
 import { createExtensionRoutes, ExtensionRoutes } from "./extension-routes.js";
@@ -10,8 +11,6 @@ import { LogStore } from "./store.js";
 import { createMcpServer } from "./tools.js";
 import { getCodeVersion } from "./version.js";
 
-	// each request from the stdout extension holds up to BatchSize entries
-const MaxBodySize = 16 * 1024 * 1024;
 	// returned by route() when it has already sent the response
 const Handled = Symbol("handled");
 
@@ -46,7 +45,7 @@ function readJSON(
 		req.on("data", (chunk) => {
 			size += chunk.length;
 
-			if (size > MaxBodySize) {
+			if (size > MaxBatchBytes) {
 				reject(new HTTPError(413, "Request body too large"));
 				req.destroy();
 			} else {
@@ -75,6 +74,7 @@ function getStatus()
 		startedAt,
 		lastIngestAt: store.lastIngestAt,
 		extensionLinkVersion: store.extensionLinkVersion,
+		batchRejection: store.batchRejection,
 		maxSeq: store.maxSeq,
 		entryCount: store.entries.length,
 	};
@@ -102,7 +102,7 @@ async function route(
 			throw new HTTPError(403, "Forbidden origin");
 		}
 
-		return handleExtensionRequest(url, await readJSON(req), (listener) => res.on("close", listener));
+		return handleExtensionRequest(url, () => readJSON(req), (listener) => res.on("close", listener));
 	}
 
 		// browsers always send an Origin with cross-origin requests, so this keeps

@@ -23,6 +23,10 @@ The per-session process that connects one agent to the daemon.
 The conversation between the stdout extension and the daemon: what each may say to the other, and in what order.
 _Avoid_: protocol (which means the MCP protocol), sync protocol, wire format
 
+**Value tag**:
+A labeled object that stands in for a console value JSON can't carry, like a Map or an Error.
+_Avoid_: `__type` object, serialized value
+
 **Agent mode**:
 The setting, turned on from the stdout extension's toolbar icon, that lets the stdout extension send its logs to the daemon and take commands from it. Logs are stored whether or not it's on.
 

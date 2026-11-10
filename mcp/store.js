@@ -5,6 +5,23 @@ import { formatArgs } from "./format.js";
 const DefaultMaxEntries = 20000;
 
 /**
+ * One entry that can't be displayed must never fail its batch, because the
+ * extension would just keep resending it and nothing after it would arrive.
+ *
+ * @param {any[]} args
+ * @returns {string}
+ */
+function renderArgs(
+	args)
+{
+	try {
+		return formatArgs(args);
+	} catch {
+		return JSON.stringify(args);
+	}
+}
+
+/**
  * @typedef {object} LogFilter
  * @property {string[]} [levels]  Console methods to include, like "error".
  * @property {string} [extension]  Extension ID or name.
@@ -66,6 +83,9 @@ export class LogStore
 			// the Extension Link version the stdout extension last sent, which is 0
 			// if it predates them, or null if we haven't heard from it
 		this.extensionLinkVersion = null;
+			// why the daemon last refused a batch, until one is accepted
+			/** @type {string|null} */
+		this.batchRejection = null;
 		this.waiters = new Set();
 			// the last sequence number we've assigned.  this keeps counting when the
 			// buffer is reset, so that cursors from before then still work.
@@ -131,7 +151,7 @@ export class LogStore
 					// the first entry from each page load, so a restarted service
 					// worker or reopened popup is easy to spot
 				const newLoad = typeof loadId === "string" && !this.loadIds.has(loadId);
-				const stored = this.add({ ...entry, newLoad, text: formatArgs(entry.args) });
+				const stored = this.add({ ...entry, newLoad, text: renderArgs(entry.args) });
 
 				this.syncPosition = seq;
 				this.loadIds.add(loadId);
@@ -146,7 +166,23 @@ export class LogStore
 			}
 		}
 
+			// only a batch that lined up gets here.  a request that just asks for our
+			// position succeeds between failed resends, so it doesn't count.
+		this.batchRejection = null;
+
 		return { syncPosition: this.syncPosition };
+	}
+
+	/**
+	 * Remember that a batch couldn't be accepted, so agents can be told that logs
+	 * aren't arriving.  Otherwise, it looks like the extension has nothing to send.
+	 *
+	 * @param {string} reason
+	 */
+	recordRejectedBatch(
+		reason)
+	{
+		this.batchRejection = reason;
 	}
 
 	/**

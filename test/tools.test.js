@@ -105,11 +105,12 @@ test("doesn't wait on an extension that never checked in", async () => {
 });
 
 test("doesn't wait on an extension that stopped checking in", async () => {
-	const { queued, isError, text } = await reload({ startedAt: 1, lastIngestAt: Date.now() - 5 * 60 * 1000 });
+	const { queued, isError, text } = await reload({ startedAt: 1, lastIngestAt: Date.now() - 5 * 60 * 1000, batchRejection: "too large" });
 
 	assert.equal(queued, false);
 	assert.equal(isError, true);
 	assert.match(text, /last checked in/);
+	assert.doesNotMatch(text, /couldn't accept/);
 });
 
 test("waits on an extension that hasn't had time to check in yet", async () => {

@@ -11,8 +11,9 @@ export const ExtensionRoutes = new Set(Object.values(LinkRoutes));
  * and for checking that a request came from the stdout extension.
  *
  * @param {{ store: import("./store.js").LogStore, commands: import("./commands.js").CommandQueue, commandPollTime?: number }} options
- * @returns {(route: string, body: any, onClose: (listener: () => void) => void) => Promise<object>}
- * Answers one request.  `onClose` registers a listener for the request going
+ * @returns {(route: string, readBody: () => Promise<any>, onClose: (listener: () => void) => void) => Promise<object>}
+ * Answers one request.  `readBody` throws if the request can't be read, such as
+ * when it's too large.  `onClose` registers a listener for the request going
  * away, so a command poll doesn't take a command that nobody will receive.
  */
 export function createExtensionRoutes(
@@ -20,11 +21,16 @@ export function createExtensionRoutes(
 {
 	return async function handleExtensionRequest(
 		route,
-		body,
+		readBody,
 		onClose)
 	{
 		if (route === LinkRoutes.Ingest) {
-			return store.ingest(body);
+			try {
+				return store.ingest(await readBody());
+			} catch (error) {
+				store.recordRejectedBatch(error.message);
+				throw error;
+			}
 		}
 
 		if (route === LinkRoutes.Commands) {
@@ -35,7 +41,7 @@ export function createExtensionRoutes(
 			return { commands: await promise };
 		}
 
-		const { id, result, error } = body;
+		const { id, result, error } = await readBody();
 
 		commands.complete(id, { result, error });
 

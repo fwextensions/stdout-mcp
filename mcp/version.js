@@ -18,9 +18,13 @@ export function getCodeVersion()
 		.map((name) => new URL(name, McpDir));
 	const hash = createHash("sha256");
 
-		// constants.js gets the extension ID from the library, and the daemon's
-		// half of the Extension Link is defined by the extension
-	files.push(new URL("../lib/stdout.js", McpDir), new URL("../extension/link.js", McpDir));
+		// constants.js gets the extension ID from the library, and the extension
+		// defines the daemon's half of the Extension Link and the value tags
+	files.push(
+		new URL("../lib/stdout.js", McpDir),
+		new URL("../extension/link.js", McpDir),
+		new URL("../extension/value-tags.js", McpDir)
+	);
 
 	for (const file of files) {
 		hash.update(readFileSync(file));
