@@ -3,7 +3,7 @@ import { createServer } from "node:http";
 import { randomUUID } from "node:crypto";
 import { createMcpHandler } from "@modelcontextprotocol/server";
 import { toNodeHandler } from "@modelcontextprotocol/node";
-import { MaxBatchBytes } from "../extension/link.js";
+import { MaxBatchBytes } from "../extension/daemon-link.js";
 import { CommandQueue } from "./commands.js";
 import { ExtensionOrigin, IdleTimeout, Port } from "./constants.js";
 import { createExtensionRoutes, ExtensionRoutes } from "./extension-routes.js";
@@ -73,7 +73,7 @@ function getStatus()
 		codeVersion,
 		startedAt,
 		lastIngestAt: store.lastIngestAt,
-		extensionLinkVersion: store.extensionLinkVersion,
+		daemonLinkVersion: store.daemonLinkVersion,
 		batchRejection: store.batchRejection,
 		maxSeq: store.maxSeq,
 		entryCount: store.entries.length,

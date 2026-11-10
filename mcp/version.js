@@ -19,10 +19,10 @@ export function getCodeVersion()
 	const hash = createHash("sha256");
 
 		// constants.js gets the extension ID from the library, and the extension
-		// defines the daemon's half of the Extension Link and the value tags
+		// defines the daemon's half of the Daemon Link and the value tags
 	files.push(
 		new URL("../lib/stdout.js", McpDir),
-		new URL("../extension/link.js", McpDir),
+		new URL("../extension/daemon-link.js", McpDir),
 		new URL("../extension/value-tags.js", McpDir)
 	);
 

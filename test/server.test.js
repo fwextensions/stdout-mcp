@@ -3,7 +3,7 @@ import { after, before, test } from "node:test";
 import assert from "node:assert/strict";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import { Client } from "@modelcontextprotocol/client";
-import { createExtensionLink, LinkRoutes, LinkVersion, MaxBatchBytes } from "../extension/link.js";
+import { createDaemonLink, DaemonLinkVersion, LinkRoutes, MaxBatchBytes } from "../extension/daemon-link.js";
 import { STDOUT_ID } from "../lib/stdout.js";
 
 const port = 40000 + Math.floor(Math.random() * 10000);
@@ -11,7 +11,7 @@ const baseURL = `http://127.0.0.1:${port}`;
 const extensionOrigin = `chrome-extension://${STDOUT_ID}`;
 const bufferId = "test";
 	// the real extension's half of the conversation, with the origin Chrome adds
-const link = createExtensionLink({
+const link = createDaemonLink({
 	baseURL,
 	fetch: (url, init) => fetch(url, { ...init, headers: { ...init.headers, Origin: extensionOrigin } }),
 });
@@ -310,18 +310,18 @@ test("sends a backlog larger than one batch", async () => {
 });
 
 test("rejects a failed exchange", async () => {
-	const failing = createExtensionLink({ baseURL, fetch: (url, init) => fetch(url, init) });
+	const failing = createDaemonLink({ baseURL, fetch: (url, init) => fetch(url, init) });
 
 	await assert.rejects(failing.pollCommands(), /HTTP 403/);
 });
 
-test("warns when the extension's Extension Link version differs", async () => {
+test("warns when the extension's Daemon Link version differs", async () => {
 	const check = (body) => post(LinkRoutes.Ingest, { bufferId, syncPosition, entries: [], ...body })
 		.then(() => callTool("get_logs", { limit: 1 }));
 
 	assert.match(await check({}), /Note: the stdout extension running in Chrome is older .*reload button/);
-	assert.match(await check({ linkVersion: LinkVersion - 1 }), /is older/);
-	assert.match(await check({ linkVersion: LinkVersion + 1 }), /is newer .*update the stdout-mcp package/);
+	assert.match(await check({ linkVersion: DaemonLinkVersion - 1 }), /is older/);
+	assert.match(await check({ linkVersion: DaemonLinkVersion + 1 }), /is newer .*update the stdout-mcp package/);
 
 	await send();
 	assert.doesNotMatch(await callTool("get_logs", { limit: 1 }), /Note:/);

@@ -1,5 +1,5 @@
 // @ts-check
-import { LinkRoutes } from "../extension/link.js";
+import { LinkRoutes } from "../extension/daemon-link.js";
 
 	// Chrome shuts down a service worker whose fetch takes more than 30 seconds
 const DefaultCommandPollTime = 25 * 1000;
@@ -7,7 +7,7 @@ const DefaultCommandPollTime = 25 * 1000;
 export const ExtensionRoutes = new Set(Object.values(LinkRoutes));
 
 /**
- * The daemon's half of the Extension Link.  The caller is responsible for HTTP
+ * The daemon's half of the Daemon Link.  The caller is responsible for HTTP
  * and for checking that a request came from the stdout extension.
  *
  * @param {{ store: import("./store.js").LogStore, commands: import("./commands.js").CommandQueue, commandPollTime?: number }} options

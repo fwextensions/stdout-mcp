@@ -2,8 +2,7 @@
 
 // The daemon connection: the stdout extension's ongoing effort, during agent
 // mode, to keep the daemon caught up and answer its commands.  It can't use
-// Chrome APIs, so that it can be tested against a real daemon's Extension Link
-// handling.
+// Chrome APIs, so that it can be tested against a real daemon.
 
 export const ConnectionStatus = {
 	Off: "off",
@@ -25,13 +24,13 @@ const DefaultDelays = {
 
 /**
  * @typedef {object} DaemonConnectionOptions
- * @property {ReturnType<typeof import("./link.js").createExtensionLink>} link
+ * @property {ReturnType<typeof import("./daemon-link.js").createDaemonLink>} link
  * @property {() => Promise<string>} getBufferId
  * @property {(position: number, limit: number) => Promise<object[]>} getEntriesAfter
  * @property {() => Promise<boolean>} isAgentMode  The source of truth for whether
  * agent mode is on.  This must make a real call into Chrome, because calling it
  * between requests is what keeps the service worker awake.
- * @property {(command: import("./link.js").Command) => Promise<import("./link.js").CommandResult>} runCommand
+ * @property {(command: import("./daemon-link.js").Command) => Promise<import("./daemon-link.js").CommandResult>} runCommand
  * @property {(status: string) => void|Promise<void>} onStatus  Called with a
  * ConnectionStatus after every attempt to reach the daemon, even if it's the same
  * as last time, since a restarted service worker doesn't know what was shown.
@@ -122,7 +121,7 @@ export function createDaemonConnection(
 	}
 
 	/**
-	 * @param {import("./link.js").Command} command
+	 * @param {import("./daemon-link.js").Command} command
 	 */
 	async function answerCommand(
 		command)

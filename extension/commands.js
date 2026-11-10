@@ -1,4 +1,4 @@
-import { CommandNames, ManifestStatus } from "./link.js";
+import { CommandNames, ManifestStatus } from "./daemon-link.js";
 
 const RegisteredPrefix = "registered:";
 	// waking a service worker can take a moment

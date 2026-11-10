@@ -1,5 +1,5 @@
 // @ts-check
-import { DefaultPort } from "../extension/link.js";
+import { DefaultPort } from "../extension/daemon-link.js";
 import { STDOUT_ID } from "../lib/stdout.js";
 
 export const Port = Number(process.env.STDOUT_MCP_PORT) || DefaultPort;

@@ -1,13 +1,13 @@
 // @ts-check
 
-// The Extension Link: the conversation between the stdout extension and the
+// The Daemon Link: the conversation between the stdout extension and the
 // daemon.  It lives here because an unpacked extension can't import anything
 // outside its own folder, and the daemon imports it from here, so it can't use
 // Chrome or Node APIs.
 
 	// bump this only when a change would break the other side, so the daemon can
 	// tell agents when the extension running in Chrome doesn't match it
-export const LinkVersion = 1;
+export const DaemonLinkVersion = 1;
 
 export const DefaultPort = 47321;
 
@@ -120,7 +120,7 @@ function fitInBatch(
  *
  * @param {{ fetch?: typeof fetch, baseURL?: string }} [options]
  */
-export function createExtensionLink(
+export function createDaemonLink(
 	{ fetch: request = fetch, baseURL = DaemonURL } = {})
 {
 	/**
@@ -168,7 +168,7 @@ export function createExtensionLink(
 					: await getEntriesAfter(position, BatchSize);
 				const entries = fitInBatch(available);
 				/** @type {IngestRequest} */
-				const batch = { linkVersion: LinkVersion, bufferId, syncPosition: position, entries };
+				const batch = { linkVersion: DaemonLinkVersion, bufferId, syncPosition: position, entries };
 				/** @type {IngestReply} */
 				const reply = await post(LinkRoutes.Ingest, batch);
 				const accepted = position !== null

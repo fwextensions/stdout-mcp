@@ -1,7 +1,7 @@
 // @ts-check
 import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
-import { CommandNames, LinkVersion, ManifestStatus } from "../extension/link.js";
+import { CommandNames, DaemonLinkVersion, ManifestStatus } from "../extension/daemon-link.js";
 
 /** @typedef {import("@modelcontextprotocol/server").CallToolResult} CallToolResult */
 
@@ -13,7 +13,7 @@ import { CommandNames, LinkVersion, ManifestStatus } from "../extension/link.js"
  * @property {string} codeVersion  Hash of the code the daemon was started from.
  * @property {number} startedAt
  * @property {number} lastIngestAt  When the stdout extension last sent entries, or 0.
- * @property {number|null} extensionLinkVersion  The Extension Link version it last sent.
+ * @property {number|null} daemonLinkVersion  The Daemon Link version it last sent.
  * @property {string|null} batchRejection  Why its last batch was refused, until
  * one is accepted.
  * @property {number} maxSeq
@@ -203,7 +203,7 @@ function parseSince(
 }
 
 function getConnectionNote(
-	{ lastIngestAt, startedAt, extensionLinkVersion, batchRejection })
+	{ lastIngestAt, startedAt, daemonLinkVersion, batchRejection })
 {
 	if (!lastIngestAt) {
 		return `Note: the stdout extension hasn't sent anything since the MCP server started ${formatAge(startedAt)}. `
@@ -220,12 +220,12 @@ function getConnectionNote(
 		return `Note: the MCP server couldn't accept the stdout extension's last batch of logs (${batchRejection}), so newer logs are missing.`;
 	}
 
-	if (extensionLinkVersion < LinkVersion) {
+	if (daemonLinkVersion < DaemonLinkVersion) {
 		return "Note: the stdout extension running in Chrome is older than this MCP server, so logs or commands may not work. "
 			+ "Ask the user to click the reload button for stdout on chrome://extensions.";
 	}
 
-	if (extensionLinkVersion > LinkVersion) {
+	if (daemonLinkVersion > DaemonLinkVersion) {
 		return "Note: the stdout extension running in Chrome is newer than this MCP server, so logs or commands may not work. "
 			+ "Ask the user to update the stdout-mcp package this agent is using.";
 	}

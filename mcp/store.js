@@ -80,9 +80,9 @@ export class LogStore
 		this.runId = randomBytes(2).toString("hex");
 		this.bufferId = null;
 		this.lastIngestAt = 0;
-			// the Extension Link version the stdout extension last sent, which is 0
+			// the Daemon Link version the stdout extension last sent, which is 0
 			// if it predates them, or null if we haven't heard from it
-		this.extensionLinkVersion = null;
+		this.daemonLinkVersion = null;
 			// why the daemon last refused a batch, until one is accepted
 			/** @type {string|null} */
 		this.batchRejection = null;
@@ -124,8 +124,8 @@ export class LogStore
 	 * one we have.  Otherwise, the returned position tells the extension where to
 	 * resend from.
 	 *
-	 * @param {import("../extension/link.js").IngestRequest} batch
-	 * @returns {import("../extension/link.js").IngestReply}
+	 * @param {import("../extension/daemon-link.js").IngestRequest} batch
+	 * @returns {import("../extension/daemon-link.js").IngestReply}
 	 */
 	ingest(
 		{ bufferId, syncPosition, entries, linkVersion })
@@ -137,7 +137,7 @@ export class LogStore
 		}
 
 		this.lastIngestAt = Date.now();
-		this.extensionLinkVersion = Number.isInteger(linkVersion) ? linkVersion : 0;
+		this.daemonLinkVersion = Number.isInteger(linkVersion) ? linkVersion : 0;
 
 		if (syncPosition !== this.syncPosition || !Array.isArray(entries)) {
 			return { syncPosition: this.syncPosition };

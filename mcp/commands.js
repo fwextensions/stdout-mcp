@@ -1,9 +1,9 @@
 // @ts-check
 
-/** @typedef {import("../extension/link.js").Command} Command */
+/** @typedef {import("../extension/daemon-link.js").Command} Command */
 
 /**
- * @typedef {import("../extension/link.js").CommandResult & { cursor?: string, timedOut?: boolean, cancelled?: boolean }} CommandOutcome
+ * @typedef {import("../extension/daemon-link.js").CommandResult & { cursor?: string, timedOut?: boolean, cancelled?: boolean }} CommandOutcome
  * `cursor` is for reading what was logged after the extension picked up the
  * command.  It's left out if the command never got a result.
  */

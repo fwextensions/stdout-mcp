@@ -1,7 +1,7 @@
 import { getBufferId, getEntriesAfter } from "./buffer.js";
 import { runCommand } from "./commands.js";
 import { ConnectionStatus, createDaemonConnection } from "./connection.js";
-import { CheckInPeriodSeconds, createExtensionLink } from "./link.js";
+import { CheckInPeriodSeconds, createDaemonLink } from "./daemon-link.js";
 
 const AlarmName = "stdout-sync";
 	// alarms wake the service worker to check in, such as after a new agent session
@@ -39,7 +39,7 @@ async function updateBadge(
 }
 
 const connection = createDaemonConnection({
-	link: createExtensionLink(),
+	link: createDaemonLink(),
 	getBufferId,
 	getEntriesAfter,
 	isAgentMode,

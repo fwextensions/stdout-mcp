@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { ConnectionStatus, createDaemonConnection } from "../extension/connection.js";
-import { BatchSize, CommandNames, createExtensionLink, LinkRoutes, MaxBatchBytes } from "../extension/link.js";
+import { BatchSize, CommandNames, createDaemonLink, LinkRoutes, MaxBatchBytes } from "../extension/daemon-link.js";
 import { CommandQueue } from "../mcp/commands.js";
 import { createExtensionRoutes } from "../mcp/extension-routes.js";
 import { LogStore } from "../mcp/store.js";
@@ -96,7 +96,7 @@ function setUp(
 		return world.daemon.handle(route, readBody, () => {});
 	}
 
-	const link = createExtensionLink({
+	const link = createDaemonLink({
 		baseURL: "http://daemon",
 		fetch: async (url, { body }) => {
 			const route = new URL(url).pathname;

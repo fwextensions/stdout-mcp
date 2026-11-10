@@ -19,9 +19,9 @@ _Avoid_: server, log server
 **Relay**:
 The per-session process that connects one agent to the daemon.
 
-**Extension Link**:
+**Daemon Link**:
 The conversation between the stdout extension and the daemon: what each may say to the other, and in what order.
-_Avoid_: protocol (which means the MCP protocol), sync protocol, wire format
+_Avoid_: Extension Link, protocol (which means the MCP protocol), sync protocol, wire format
 
 **Value tag**:
 A labeled object that stands in for a console value JSON can't carry, like a Map or an Error.

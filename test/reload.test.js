@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { setImmediate as nextTurn } from "node:timers/promises";
 import { notifyRegistered, runCommand } from "../extension/commands.js";
-import { CommandNames, ManifestStatus } from "../extension/link.js";
+import { CommandNames, ManifestStatus } from "../extension/daemon-link.js";
 import stdout from "../lib/stdout.js";
 
 const ID = "abc";
