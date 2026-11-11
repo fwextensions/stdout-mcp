@@ -2,7 +2,10 @@ import { CommandNames, ManifestStatus } from "./daemon-link.js";
 import { createReloadMessage } from "./tap-link.js";
 
 const RegisteredPrefix = "registered:";
-	// waking a service worker can take a moment
+	// a reload waits on these at most WakeTimeout + ReloadAnswerTimeout, then
+	// RestartTimeout + ReloadAnswerTimeout + RestartTimeout, or 35 seconds, which
+	// has to stay under the daemon's CommandRunSeconds.  waking a service worker
+	// can take a moment.
 const ReloadAnswerTimeout = 5 * 1000;
 const RestartTimeout = 10 * 1000;
 const WakeTimeout = 5 * 1000;

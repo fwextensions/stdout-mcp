@@ -2,10 +2,23 @@
 
 /** @typedef {import("../extension/daemon-link.js").Command} Command */
 
+/** @typedef {{ command: Command, cursor?: string, onPickup: () => void }} PendingCommand */
+
 /**
- * @typedef {import("../extension/daemon-link.js").CommandResult & { cursor?: string, timedOut?: boolean, cancelled?: boolean }} CommandOutcome
+ * @typedef {import("../extension/daemon-link.js").CommandResult & { cursor?: string, timedOut?: "pickup"|"result", cancelled?: boolean }} CommandOutcome
  * `cursor` is for reading what was logged after the extension picked up the
- * command.  It's left out if the command never got a result.
+ * command.  It's left out if the command was never picked up.  `timedOut` says
+ * whether the extension never picked up the command, or picked it up but never
+ * said how it went.
+ */
+
+/**
+ * @typedef {object} CommandTimeouts
+ * @property {number} pickupTimeout  How long the extension has to pick up the
+ * command.
+ * @property {number} runTimeout  How long it then has to say how it went.  This
+ * starts over at pickup, so time spent waiting for the extension to ask for
+ * commands doesn't cut into the time it has to run one.
  */
 
 /**
@@ -23,7 +36,7 @@ export class CommandQueue
 	{
 		this.getCursor = getCursor;
 		this.nextId = 1;
-			/** @type {{ command: Command, cursor?: string }[]} */
+			/** @type {PendingCommand[]} */
 		this.pending = [];
 			/** @type {Map<number, (outcome: CommandOutcome) => void>} */
 		this.outcomes = new Map();
@@ -36,17 +49,17 @@ export class CommandQueue
 	 *
 	 * @param {string} name
 	 * @param {object} args
-	 * @param {number} timeoutMs
+	 * @param {CommandTimeouts} timeouts
 	 * @returns {{ promise: Promise<CommandOutcome>, cancel: () => void }}
 	 */
 	send(
 		name,
 		args,
-		timeoutMs)
+		{ pickupTimeout, runTimeout })
 	{
 		const command = { id: this.nextId++, name, args };
-		/** @type {{ command: Command, cursor?: string }} */
-		const item = { command };
+		/** @type {PendingCommand} */
+		const item = { command, onPickup: () => {} };
 		let cancel;
 		const promise = new Promise((resolve) => {
 				// taking the command out of the queue keeps one that timed out from
@@ -57,8 +70,12 @@ export class CommandQueue
 				this.outcomes.delete(command.id);
 				resolve(outcome);
 			};
-			const timer = setTimeout(() => finish({ timedOut: true }), timeoutMs);
+			let timer = setTimeout(() => finish({ timedOut: "pickup" }), pickupTimeout);
 
+			item.onPickup = () => {
+				clearTimeout(timer);
+				timer = setTimeout(() => finish({ timedOut: "result", cursor: item.cursor }), runTimeout);
+			};
 			cancel = () => finish({ cancelled: true });
 			this.outcomes.set(command.id, (outcome) => finish({ ...outcome, cursor: item.cursor }));
 		});
@@ -123,7 +140,10 @@ export class CommandQueue
 			const cursor = this.getCursor();
 
 			this.pending = [];
-			pending.forEach((item) => item.cursor = cursor);
+			pending.forEach((item) => {
+				item.cursor = cursor;
+				item.onPickup();
+			});
 			this.poller(pending.map(({ command }) => command));
 		}
 	}

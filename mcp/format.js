@@ -139,3 +139,19 @@ export function formatArgs(
 
 	return parts.join(" ");
 }
+
+/**
+ * How long ago a time was, like "45 seconds ago" or "3 minutes ago".
+ *
+ * @param {number} time
+ * @param {number} [now]
+ * @returns {string}
+ */
+export function formatAge(
+	time,
+	now = Date.now())
+{
+	const seconds = Math.round((now - time) / 1000);
+
+	return seconds < 120 ? `${seconds} seconds ago` : `${Math.round(seconds / 60)} minutes ago`;
+}

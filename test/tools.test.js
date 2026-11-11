@@ -15,11 +15,13 @@ const store = {
 };
 let status = {};
 let sendCount = 0;
+	// what the next command sent to the extension will come back with
+let outcome;
 const commands = {
 	send: () => {
 		sendCount++;
 
-		return { promise: Promise.resolve({ result: { id: "a", name: "A", manifest: "skipped" } }), cancel() {} };
+		return { promise: Promise.resolve(outcome), cancel() {} };
 	},
 };
 let server;
@@ -81,13 +83,18 @@ for (const [era, versionNegotiation] of [["2026-07-28", Modern], ["2025", undefi
 	});
 }
 
+	// whether the extension counts as disconnected is tested in check-ins.test.js
+const CheckedIn = { startedAt: 1, lastIngestAt: Date.now() };
+
 async function reload(
-	newStatus)
+	newStatus,
+	newOutcome = { result: { id: "a", name: "A", manifest: "skipped" }, cursor: "1:5" })
 {
 	const count = sendCount;
 	const client = await connect(Modern);
 
 	status = newStatus;
+	outcome = newOutcome;
 
 	const result = await client.callTool({ name: "reload_extension", arguments: { extension: "A" } });
 
@@ -96,27 +103,34 @@ async function reload(
 	return { queued: sendCount > count, isError: result.isError, text: result.content[0].text };
 }
 
-test("doesn't wait on an extension that never checked in", async () => {
-	const { queued, isError, text } = await reload({ startedAt: Date.now() - 60 * 1000, lastIngestAt: 0 });
+test("doesn't wait on an extension that isn't checking in", async () => {
+	const { queued, isError, text } = await reload({ startedAt: 1, lastIngestAt: 0 });
 
 	assert.equal(queued, false);
 	assert.equal(isError, true);
 	assert.match(text, /Can't reload A right now.*ask the user to click the stdout toolbar icon/s);
 });
 
-test("doesn't wait on an extension that stopped checking in", async () => {
-	const { queued, isError, text } = await reload({ startedAt: 1, lastIngestAt: Date.now() - 5 * 60 * 1000, batchRejection: "too large" });
-
-	assert.equal(queued, false);
-	assert.equal(isError, true);
-	assert.match(text, /last checked in/);
-	assert.doesNotMatch(text, /couldn't accept/);
-});
-
-test("waits on an extension that hasn't had time to check in yet", async () => {
-	assert.equal((await reload({ startedAt: Date.now() - 5 * 1000, lastIngestAt: 0 })).queued, true);
-});
-
 test("reloads when the extension checked in recently", async () => {
-	assert.equal((await reload({ startedAt: 1, lastIngestAt: Date.now() - 1000 })).queued, true);
+	const { queued, isError, text } = await reload(CheckedIn);
+
+	assert.equal(queued, true);
+	assert.equal(isError, undefined);
+	assert.match(text, /Reloaded the code of A/);
+});
+
+test("suggests trying again when the extension never picked up the reload", async () => {
+	const { isError, text } = await reload(CheckedIn, { timedOut: "pickup" });
+
+	assert.equal(isError, true);
+	assert.match(text, /didn't pick up the reload.*try again/s);
+});
+
+test("warns against trying again when the reload started but never finished", async () => {
+	const { isError, text } = await reload(CheckedIn, { timedOut: "result", cursor: "1:5" });
+
+	assert.equal(isError, true);
+	assert.match(text, /started reloading A.*may have reloaded/s);
+	assert.doesNotMatch(text, /try again/);
+	assert.match(text, /cursor: 1:5/);
 });

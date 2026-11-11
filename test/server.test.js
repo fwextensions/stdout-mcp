@@ -4,11 +4,12 @@ import assert from "node:assert/strict";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import { Client } from "@modelcontextprotocol/client";
 import { createDaemonLink, DaemonLinkVersion, LinkRoutes, MaxBatchBytes } from "../extension/daemon-link.js";
-import { STDOUT_ID } from "../lib/stdout.js";
+import { StdoutId } from "../extension/tap-link.js";
+import { getFreePort } from "./free-port.js";
 
-const port = 40000 + Math.floor(Math.random() * 10000);
+const port = await getFreePort();
 const baseURL = `http://127.0.0.1:${port}`;
-const extensionOrigin = `chrome-extension://${STDOUT_ID}`;
+const extensionOrigin = `chrome-extension://${StdoutId}`;
 const bufferId = "test";
 	// the real extension's half of the conversation, with the origin Chrome adds
 const link = createDaemonLink({

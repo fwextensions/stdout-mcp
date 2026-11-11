@@ -466,13 +466,14 @@
 			<h2>What happens on a reload</h2>
 			<p>A reload uses both links.</p>
 			<ol class="steps">
-				<li><div>The agent calls <code>reload_extension</code>. The daemon queues the command and waits for its result.</div></li>
+				<li><div>The agent calls <code>reload_extension</code>. If the stdout extension hasn't checked in lately, the daemon says so right away instead of waiting. Otherwise it queues the command and waits for its result.</div></li>
 				<li><div>The stdout extension's open <code>POST /commands</code> request returns the command. The stdout extension checks that the extension is unpacked, turned on, and has registered.</div></li>
 				<li><div>With <code>reloadManifest</code>, the stdout extension sends <code>reload</code> to the extension's tap. That wakes a sleeping service worker. If the worker hasn't called <code>stdout()</code> by the time the message arrives, the stdout extension asks again once the worker registers.</div></li>
 				<li><div>The tap calls <code>chrome.runtime.reload()</code>, which reads <code>manifest.json</code> again. When the new worker's tap sends <code>register</code> with <code>worker: true</code>, the result is "reloaded". If the worker doesn't come back within 10 seconds, the result is "unconfirmed".</div></li>
 				<li><div>Without <code>reloadManifest</code>, or if no tap answers, the stdout extension turns the extension off and on. That runs its code again from disk but keeps the manifest Chrome already read.</div></li>
 				<li><div>The stdout extension posts the result to <code>/commands/result</code>. The daemon returns it to the agent with a cursor, so the agent can read only the logs from after the reload.</div></li>
 			</ol>
+			<p class="note">The stdout extension has 40 seconds to pick up a command, which covers a sleeping worker waiting for its next check-in. Then it has 40 more to report how it went, since a reload can take up to 35 seconds on its own. The two limits are separate, so a reload that's still running isn't reported as unanswered. If the result doesn't arrive in time, the agent is told the extension may have reloaded, so that trying again doesn't reload it twice.</p>
 		</section>
 
 		<section>

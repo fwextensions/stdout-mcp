@@ -37,6 +37,9 @@ export const ManifestStatus = {
 	// allows.
 export const CheckInPeriodSeconds = 30;
 
+	// once the extension picks up a command, it says how it went within this long
+export const CommandRunSeconds = 40;
+
 export const BatchSize = 500;
 
 	// the largest request body the daemon accepts

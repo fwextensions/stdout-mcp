@@ -5,8 +5,9 @@ import assert from "node:assert/strict";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import { Client } from "@modelcontextprotocol/client";
 import { getCodeVersion } from "../mcp/version.js";
+import { getFreePort } from "./free-port.js";
 
-const port = 40000 + Math.floor(Math.random() * 10000);
+const port = await getFreePort();
 const baseURL = `http://127.0.0.1:${port}`;
 	// stands in for a daemon started from older code
 const OldDaemon = `

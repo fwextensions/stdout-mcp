@@ -211,7 +211,7 @@ test("sends nothing when agent mode is off", async (t) => {
 
 test("sends the whole backlog before polling for commands", async (t) => {
 	const world = setUp(t, { commandPollTime: LongPoll });
-	const { promise } = world.daemon.commands.send(CommandNames.Reload, {}, 2000);
+	const { promise } = world.daemon.commands.send(CommandNames.Reload, {}, { pickupTimeout: 2000, runTimeout: 2000 });
 
 	world.log(BatchSize * 2 + 1);
 	world.connection.start();
@@ -228,7 +228,7 @@ test("runs commands and reports their results", async (t) => {
 		commandPollTime: LongPoll,
 		runCommand: async ({ args }) => ({ result: args.value * 2 }),
 	});
-	const { promise } = world.daemon.commands.send("double", { value: 21 }, 2000);
+	const { promise } = world.daemon.commands.send("double", { value: 21 }, { pickupTimeout: 2000, runTimeout: 2000 });
 
 	assert.equal((await promise).result, 42);
 });
@@ -441,7 +441,7 @@ test("refuses a command that arrives after agent mode was turned off", async (t)
 	await waitFor(() => world.daemon.commands.poller);
 	world.agentMode = false;
 
-	const { promise } = world.daemon.commands.send(CommandNames.Reload, {}, 2000);
+	const { promise } = world.daemon.commands.send(CommandNames.Reload, {}, { pickupTimeout: 2000, runTimeout: 2000 });
 	const outcome = await promise;
 
 	assert.match(outcome.error, /turned off/);
@@ -550,7 +550,7 @@ test("a failed command poll waits for the next sync to change anything", async (
 
 	world.daemon = createDaemon(LongPoll);
 
-	const { promise } = world.daemon.commands.send(CommandNames.Reload, {}, 2000);
+	const { promise } = world.daemon.commands.send(CommandNames.Reload, {}, { pickupTimeout: 2000, runTimeout: 2000 });
 
 	await world.connection.checkIn();
 	assert.equal((await promise).result, "ran");

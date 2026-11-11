@@ -1,7 +1,9 @@
 // @ts-check
 import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
-import { CommandNames, DaemonLinkVersion, ManifestStatus } from "../extension/daemon-link.js";
+import { CommandNames, CommandRunSeconds, ManifestStatus } from "../extension/daemon-link.js";
+import { getConnectionNote, isExtensionDisconnected, PickupTimeout } from "./check-ins.js";
+import { formatAge } from "./format.js";
 
 /** @typedef {import("@modelcontextprotocol/server").CallToolResult} CallToolResult */
 
@@ -20,13 +22,6 @@ import { CommandNames, DaemonLinkVersion, ManifestStatus } from "../extension/da
  * @property {number} entryCount
  */
 
-	// the extension's alarm syncs every 30 seconds while agent mode is on
-const SyncStaleTime = 90 * 1000;
-	// a daemon that's been running this long without hearing from the extension
-	// would have by now if agent mode were on
-const FirstCheckInTime = 35 * 1000;
-	// long enough for the extension's alarm to fire and pick up the command
-const ReloadTimeout = 40 * 1000;
 const Instructions = `\
 Reads console output from Chrome extensions under development. The extension \
 being debugged forwards its console calls to the "stdout" helper extension, \
@@ -114,14 +109,6 @@ function formatTime(
 		: "unknown time";
 }
 
-function formatAge(
-	time)
-{
-	const seconds = Math.round((Date.now() - time) / 1000);
-
-	return seconds < 120 ? `${seconds} seconds ago` : `${Math.round(seconds / 60)} minutes ago`;
-}
-
 function formatDelta(
 	ms)
 {
@@ -200,45 +187,6 @@ function parseSince(
 	}
 
 	return time;
-}
-
-function getConnectionNote(
-	{ lastIngestAt, startedAt, daemonLinkVersion, batchRejection })
-{
-	if (!lastIngestAt) {
-		return `Note: the stdout extension hasn't sent anything since the MCP server started ${formatAge(startedAt)}. `
-			+ "If agent mode is on (the stdout toolbar icon in Chrome shows an MCP badge), its stored logs will arrive within about 30 seconds. "
-			+ "Otherwise, ask the user to click the stdout toolbar icon to turn on agent mode.";
-	}
-
-	if (Date.now() - lastIngestAt > SyncStaleTime) {
-		return `Note: the stdout extension last checked in ${formatAge(lastIngestAt)}, so agent mode may have been turned off, or Chrome may be closed. `
-			+ "Newer logs may be missing.";
-	}
-
-	if (batchRejection) {
-		return `Note: the MCP server couldn't accept the stdout extension's last batch of logs (${batchRejection}), so newer logs are missing.`;
-	}
-
-	if (daemonLinkVersion < DaemonLinkVersion) {
-		return "Note: the stdout extension running in Chrome is older than this MCP server, so logs or commands may not work. "
-			+ "Ask the user to click the reload button for stdout on chrome://extensions.";
-	}
-
-	if (daemonLinkVersion > DaemonLinkVersion) {
-		return "Note: the stdout extension running in Chrome is newer than this MCP server, so logs or commands may not work. "
-			+ "Ask the user to update the stdout-mcp package this agent is using.";
-	}
-
-	return "";
-}
-
-function isExtensionDisconnected(
-	{ lastIngestAt, startedAt })
-{
-	return lastIngestAt
-		? Date.now() - lastIngestAt > SyncStaleTime
-		: Date.now() - startedAt > FirstCheckInTime;
 }
 
 function getReloadMessage(
@@ -501,15 +449,26 @@ export function createMcpServer(
 					throw new Error(`Can't reload ${extension} right now. ${getConnectionNote(status)}`);
 				}
 
-				const { promise, cancel } = commands.send(CommandNames.Reload, { extension, reloadManifest }, ReloadTimeout);
+				const { promise, cancel } = commands.send(CommandNames.Reload, { extension, reloadManifest }, {
+					pickupTimeout: PickupTimeout,
+					runTimeout: CommandRunSeconds * 1000,
+				});
 
 				ctx.mcpReq.signal.addEventListener("abort", cancel);
 
 				const { result, error, timedOut, cancelled, cursor } = await promise;
 
-				if (timedOut) {
-					throw new Error(`The stdout extension didn't respond within ${ReloadTimeout / 1000} seconds. `
+				if (timedOut === "pickup") {
+					throw new Error(`The stdout extension didn't pick up the reload within ${PickupTimeout / 1000} seconds. `
 						+ (getConnectionNote(getStatus()) || "Chrome may be busy, so try again."));
+				}
+
+					// the reload may have worked, so a retry could reload it twice
+				if (timedOut === "result") {
+					throw new Error(`The stdout extension started reloading ${extension}, but didn't say how it went `
+						+ `within ${CommandRunSeconds} seconds. Check its logs before trying again, since it may `
+						+ `have reloaded.\n\ncursor: ${cursor} (pass as \`after\` to get the entries logged since `
+						+ "the reload started)");
 				}
 
 				if (cancelled) {
