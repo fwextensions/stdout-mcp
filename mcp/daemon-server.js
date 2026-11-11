@@ -3,7 +3,7 @@ import { createServer } from "node:http";
 import { randomUUID } from "node:crypto";
 import { createMcpHandler } from "@modelcontextprotocol/server";
 import { toNodeHandler } from "@modelcontextprotocol/node";
-import { MaxBatchBytes } from "../extension/daemon-link.js";
+import { BufferIdHeader, MaxBatchBytes } from "../extension/daemon-link.js";
 import { CommandQueue } from "./commands.js";
 import { createExtensionRoutes, ExtensionRoutes } from "./extension-routes.js";
 import { LogStore } from "./store.js";
@@ -91,8 +91,7 @@ export function createDaemonServer(
 			bootId,
 			codeVersion,
 			startedAt,
-			lastIngestAt: store.lastIngestAt,
-			daemonLinkVersion: store.daemonLinkVersion,
+			browsers: store.getBrowsers(),
 			batchRejection: store.batchRejection,
 			maxSeq: store.maxSeq,
 			entryCount: store.entries.length,
@@ -121,7 +120,14 @@ export function createDaemonServer(
 				throw new HTTPError(403, "Forbidden origin");
 			}
 
-			return handleExtensionRequest(url, () => readJSON(req), (listener) => res.on("close", listener));
+			const bufferId = req.headers[BufferIdHeader.toLowerCase()];
+
+			return handleExtensionRequest(
+				url,
+				() => readJSON(req),
+				(listener) => res.on("close", listener),
+				typeof bufferId === "string" ? bufferId : undefined
+			);
 		}
 
 			// browsers always send an Origin with cross-origin requests, so this keeps

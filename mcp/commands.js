@@ -2,7 +2,14 @@
 
 /** @typedef {import("../extension/daemon-link.js").Command} Command */
 
-/** @typedef {{ command: Command, cursor?: string, onPickup: () => void }} PendingCommand */
+/**
+ * @typedef {{ command: Command, browserId?: string, cursor?: string, onPickup: () => void }} PendingCommand
+ * A command without a `browserId` goes to whichever browser asks first.
+ */
+
+	// the browser ID of a poll from an extension that predates the buffer ID
+	// header.  it can't say which browser it is, so it gets any command.
+export const UnknownBrowser = "unknown";
 
 /**
  * @typedef {import("../extension/daemon-link.js").CommandResult & { cursor?: string, timedOut?: "pickup"|"result", cancelled?: boolean }} CommandOutcome
@@ -19,12 +26,14 @@
  * @property {number} runTimeout  How long it then has to say how it went.  This
  * starts over at pickup, so time spent waiting for the extension to ask for
  * commands doesn't cut into the time it has to run one.
+ * @property {string} [browserId]  The browser to run the command in.
  */
 
 /**
  * Holds commands for the stdout extension until it asks for them.  The daemon
  * can't reach the extension's service worker, so the worker long-polls for
- * commands while an agent is active.
+ * commands while an agent is active.  Each browser has its own poll, so that
+ * two browsers' polls don't end each other.
  */
 export class CommandQueue
 {
@@ -40,8 +49,8 @@ export class CommandQueue
 		this.pending = [];
 			/** @type {Map<number, (outcome: CommandOutcome) => void>} */
 		this.outcomes = new Map();
-			/** @type {((commands: Command[]) => void)|null} */
-		this.poller = null;
+			/** @type {Map<string, (commands: Command[]) => void>} */
+		this.pollers = new Map();
 	}
 
 	/**
@@ -55,11 +64,11 @@ export class CommandQueue
 	send(
 		name,
 		args,
-		{ pickupTimeout, runTimeout })
+		{ pickupTimeout, runTimeout, browserId })
 	{
 		const command = { id: this.nextId++, name, args };
 		/** @type {PendingCommand} */
-		const item = { command, onPickup: () => {} };
+		const item = { command, browserId, onPickup: () => {} };
 		let cancel;
 		const promise = new Promise((resolve) => {
 				// taking the command out of the queue keeps one that timed out from
@@ -87,24 +96,27 @@ export class CommandQueue
 	}
 
 	/**
-	 * Wait for commands to send to the extension.  A new poll replaces an existing
-	 * one, which is left over from a service worker that was shut down.
+	 * Wait for commands to send to a browser's stdout extension.  A new poll
+	 * from a browser replaces its existing one, which is left over from a service
+	 * worker that was shut down.
 	 *
+	 * @param {string} browserId
 	 * @param {number} timeoutMs
 	 * @returns {{ promise: Promise<Command[]>, cancel: () => void }}
 	 */
 	poll(
+		browserId,
 		timeoutMs)
 	{
-		this.poller?.([]);
+		this.pollers.get(browserId)?.([]);
 
 		let cancel;
 		const promise = new Promise((resolve) => {
 			const finish = (commands) => {
 				clearTimeout(timer);
 
-				if (this.poller === finish) {
-					this.poller = null;
+				if (this.pollers.get(browserId) === finish) {
+					this.pollers.delete(browserId);
 				}
 
 				resolve(commands);
@@ -112,7 +124,7 @@ export class CommandQueue
 			const timer = setTimeout(() => finish([]), timeoutMs);
 
 			cancel = () => finish([]);
-			this.poller = finish;
+			this.pollers.set(browserId, finish);
 		});
 
 		this.deliver();
@@ -131,20 +143,45 @@ export class CommandQueue
 		this.outcomes.get(id)?.(outcome);
 	}
 
+	/**
+	 * Whether any browser is waiting for commands.
+	 *
+	 * @returns {boolean}
+	 */
+	hasPoll()
+	{
+		return this.pollers.size > 0;
+	}
+
+	/**
+	 * End every poll, such as when the daemon is shutting down.
+	 */
+	endPolls()
+	{
+		for (const finish of [...this.pollers.values()]) {
+			finish([]);
+		}
+	}
+
 	deliver()
 	{
-		if (this.poller && this.pending.length) {
-			const pending = this.pending;
-				// the extension sends its backlog before it picks up a command, which
-				// matters when the daemon has just started and has no logs yet
-			const cursor = this.getCursor();
+		for (const [browserId, poller] of [...this.pollers]) {
+			const isFor = (item) => !item.browserId || item.browserId === browserId
+				|| browserId === UnknownBrowser;
+			const pending = this.pending.filter(isFor);
 
-			this.pending = [];
-			pending.forEach((item) => {
-				item.cursor = cursor;
-				item.onPickup();
-			});
-			this.poller(pending.map(({ command }) => command));
+			if (pending.length) {
+					// the extension sends its backlog before it picks up a command, which
+					// matters when the daemon has just started and has no logs yet
+				const cursor = this.getCursor();
+
+				this.pending = this.pending.filter((item) => !isFor(item));
+				pending.forEach((item) => {
+					item.cursor = cursor;
+					item.onPickup();
+				});
+				poller(pending.map(({ command }) => command));
+			}
 		}
 	}
 }

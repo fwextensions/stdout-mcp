@@ -1,3 +1,4 @@
+import { BrowserNameKey, getBrowserName } from "./browser-name.js";
 import { getBufferId, getEntriesAfter } from "./buffer.js";
 import { runCommand } from "./commands.js";
 import { ConnectionStatus, createDaemonConnection } from "./connection.js";
@@ -41,6 +42,7 @@ async function updateBadge(
 const connection = createDaemonConnection({
 	link: createDaemonLink(),
 	getBufferId,
+	getBrowserName: async () => getBrowserName((await chrome.storage.local.get(BrowserNameKey))[BrowserNameKey]),
 	getEntriesAfter,
 	isAgentMode,
 	runCommand,
@@ -63,7 +65,20 @@ export async function handleStorageChange(
 	changes,
 	areaName)
 {
-	if (areaName !== "local" || !changes.agentMode) {
+	if (areaName !== "local") {
+		return;
+	}
+
+	if (changes[BrowserNameKey]) {
+			// tell the daemon the new name now, rather than at the next check-in
+		if (await isAgentMode()) {
+			await connection.checkIn();
+		}
+
+		return;
+	}
+
+	if (!changes.agentMode) {
 		return;
 	}
 

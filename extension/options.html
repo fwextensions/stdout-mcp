@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<title>stdout options</title>
+	<style>
+		:root {
+			color-scheme: light dark;
+			font: 14px system-ui, sans-serif;
+		}
+
+		body {
+			margin: 16px;
+			min-width: 320px;
+		}
+
+		label {
+			display: block;
+			font-weight: 600;
+			margin-bottom: 6px;
+		}
+
+		input {
+			box-sizing: border-box;
+			font: inherit;
+			padding: 4px 6px;
+			width: 100%;
+		}
+
+		p {
+			color: GrayText;
+			margin: 8px 0 0;
+		}
+	</style>
+</head>
+<body>
+	<label for="browser-name">Browser name</label>
+	<input id="browser-name" type="text" maxlength="40" autocomplete="off" spellcheck="false">
+	<p>
+		What coding agents call this browser when stdout runs in more than one, such as
+		Chrome and Canary. Leave it empty to use the browser's name and version.
+	</p>
+	<script type="module" src="options.js"></script>
+</body>
+</html>

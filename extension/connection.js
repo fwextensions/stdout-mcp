@@ -26,6 +26,8 @@ const DefaultDelays = {
  * @typedef {object} DaemonConnectionOptions
  * @property {ReturnType<typeof import("./daemon-link.js").createDaemonLink>} link
  * @property {() => Promise<string>} getBufferId
+ * @property {() => Promise<string>} [getBrowserName]  What agents should call
+ * this browser.
  * @property {(position: number, limit: number) => Promise<object[]>} getEntriesAfter
  * @property {() => Promise<boolean>} isAgentMode  The source of truth for whether
  * agent mode is on.  This must make a real call into Chrome, because calling it
@@ -48,7 +50,7 @@ const DefaultDelays = {
  * @param {DaemonConnectionOptions} options
  */
 export function createDaemonConnection(
-	{ link, getBufferId, getEntriesAfter, isAgentMode, runCommand, onStatus, delays })
+	{ link, getBufferId, getBrowserName = async () => "", getEntriesAfter, isAgentMode, runCommand, onStatus, delays })
 {
 	const { flush: flushDelay, retryAfterFailure, fastRetry, fastRetryDuration } = { ...DefaultDelays, ...delays };
 	let status = ConnectionStatus.Looking;
@@ -100,7 +102,8 @@ export function createDaemonConnection(
 
 		try {
 			const bufferId = await getBufferId();
-			const position = await link.catchUp({ bufferId, syncPosition, getEntriesAfter });
+			const browserName = await getBrowserName();
+			const position = await link.catchUp({ bufferId, browserName, syncPosition, getEntriesAfter });
 
 			if (await isStillOn()) {
 				syncPosition = position;
@@ -124,13 +127,14 @@ export function createDaemonConnection(
 	 * @param {import("./daemon-link.js").Command} command
 	 */
 	async function answerCommand(
+		bufferId,
 		command)
 	{
 		const outcome = await isAgentMode()
 			? await runCommand(command)
 			: { error: "Agent mode was turned off in the stdout extension." };
 
-		await link.sendCommandResult(command.id, outcome);
+		await link.sendCommandResult(bufferId, command.id, outcome);
 	}
 
 	/**
@@ -146,10 +150,12 @@ export function createDaemonConnection(
 		polling = true;
 
 		try {
-			while (await isAgentMode()) {
-				const commands = await link.pollCommands();
+			const bufferId = await getBufferId();
 
-				await Promise.all(commands.map(answerCommand));
+			while (await isAgentMode()) {
+				const commands = await link.pollCommands(bufferId);
+
+				await Promise.all(commands.map((command) => answerCommand(bufferId, command)));
 			}
 		} catch {
 				// a check-in will start polling again once the daemon is back

@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { ConnectionStatus, createDaemonConnection } from "../extension/connection.js";
-import { BatchSize, CommandNames, createDaemonLink, LinkRoutes, MaxBatchBytes } from "../extension/daemon-link.js";
+import { BatchSize, BufferIdHeader, CommandNames, createDaemonLink, LinkRoutes, MaxBatchBytes } from "../extension/daemon-link.js";
 import { CommandQueue } from "../mcp/commands.js";
 import { createExtensionRoutes } from "../mcp/extension-routes.js";
 import { LogStore } from "../mcp/store.js";
@@ -41,7 +41,7 @@ function createDaemon(
  */
 function setUp(
 	t,
-	{ delays, commandPollTime, runCommand = async () => ({ result: "ran" }) } = {})
+	{ delays, commandPollTime, runCommand = async () => ({ result: "ran" }), bufferId = "test", browserName = "Chrome 146" } = {})
 {
 	const world = {
 		daemon: createDaemon(commandPollTime),
@@ -65,7 +65,8 @@ function setUp(
 
 	async function respond(
 		route,
-		body)
+		body,
+		headerBufferId)
 	{
 		world.requests[route]++;
 
@@ -93,12 +94,12 @@ function setUp(
 			return body;
 		};
 
-		return world.daemon.handle(route, readBody, () => {});
+		return world.daemon.handle(route, readBody, () => {}, headerBufferId);
 	}
 
 	const link = createDaemonLink({
 		baseURL: "http://daemon",
-		fetch: async (url, { body }) => {
+		fetch: async (url, { body, headers }) => {
 			const route = new URL(url).pathname;
 			const isPoll = route === LinkRoutes.Commands;
 
@@ -111,7 +112,7 @@ function setUp(
 				await new Promise(setImmediate);
 				world.largestRequest = Math.max(world.largestRequest, Buffer.byteLength(body ?? ""));
 
-				return new Response(JSON.stringify(await respond(route, JSON.parse(body ?? "{}"))));
+				return new Response(JSON.stringify(await respond(route, JSON.parse(body ?? "{}"), headers?.[BufferIdHeader])));
 			} finally {
 				if (isPoll) {
 					world.pollsInFlight--;
@@ -122,7 +123,8 @@ function setUp(
 
 	world.connection = createDaemonConnection({
 		link,
-		getBufferId: async () => "test",
+		getBufferId: async () => bufferId,
+		getBrowserName: async () => browserName,
 		getEntriesAfter: async (position, limit) => world.buffer.filter(({ seq }) => seq > position).slice(0, limit),
 		isAgentMode: async () => {
 			world.agentModeChecks++;
@@ -158,7 +160,7 @@ function setUp(
 		// ends the command poll loop, without waiting for a long poll to time out
 	t.after(() => {
 		world.agentMode = false;
-		world.daemon?.commands.poller?.([]);
+		world.daemon?.commands.endPolls();
 	});
 
 	return world;
@@ -438,7 +440,7 @@ test("runs only one command poll at a time", async (t) => {
 test("refuses a command that arrives after agent mode was turned off", async (t) => {
 	const world = await setUpConnected(t, { commandPollTime: LongPoll });
 
-	await waitFor(() => world.daemon.commands.poller);
+	await waitFor(() => world.daemon.commands.hasPoll());
 	world.agentMode = false;
 
 	const { promise } = world.daemon.commands.send(CommandNames.Reload, {}, { pickupTimeout: 2000, runTimeout: 2000 });
@@ -509,14 +511,14 @@ test("remembers a refused batch until one is accepted", async (t) => {
 	world.rejectBatches = "Request body too large";
 	await world.connection.checkIn();
 
-	assert.equal(store.batchRejection, "Request body too large");
+	assert.equal(store.getBrowsers()[0].batchRejection, "Request body too large");
 	assert.equal(world.statuses.at(-1), Looking);
 	assert.equal(world.storedCount(), 0);
 
 	world.rejectBatches = null;
 	await world.connection.checkIn();
 
-	assert.equal(store.batchRejection, null);
+	assert.equal(store.getBrowsers()[0].batchRejection, null);
 	assert.equal(world.statuses.at(-1), Connected);
 	assert.equal(world.storedCount(), 1);
 });
@@ -554,4 +556,42 @@ test("a failed command poll waits for the next sync to change anything", async (
 
 	await world.connection.checkIn();
 	assert.equal((await promise).result, "ran");
+});
+
+test("two browsers stay caught up without ending each other's command polls", async (t) => {
+	const chrome = await setUpConnected(t, { commandPollTime: LongPoll });
+	const edge = setUp(t, { commandPollTime: LongPoll, bufferId: "edge-buffer", browserName: "Edge 146" });
+
+	edge.daemon = chrome.daemon;
+	edge.connection.start();
+	await waitFor(edge.connected);
+	await waitFor(() => chrome.requests[LinkRoutes.Commands] > 0 && edge.requests[LinkRoutes.Commands] > 0);
+
+	const polls = chrome.requests[LinkRoutes.Commands] + edge.requests[LinkRoutes.Commands];
+
+	chrome.log(2, ["from chrome"]);
+	edge.log(1, ["from edge"]);
+	await chrome.connection.checkIn();
+	await edge.connection.checkIn();
+	chrome.log(1, ["chrome again"]);
+	await chrome.connection.checkIn();
+	await sleep(SettleTime);
+
+	const { store, commands } = chrome.daemon;
+
+	assert.deepEqual(store.entries.map(({ browserId, text }) => [browserId, text]), [
+		["test", "from chrome"],
+		["test", "from chrome"],
+		["edge-buf", "from edge"],
+		["test", "chrome again"],
+	]);
+	assert.deepEqual(store.getBrowsers().map(({ label }) => label).sort(), ["Chrome 146", "Edge 146"]);
+		// each long poll is still waiting, rather than being replaced by the other's
+	assert.equal(chrome.requests[LinkRoutes.Commands] + edge.requests[LinkRoutes.Commands], polls);
+
+	const { promise } = commands.send(CommandNames.Reload, { extension: "x" }, { browserId: "edge-buf", pickupTimeout: 2000, runTimeout: 2000 });
+
+	assert.equal((await promise).result, "ran");
+	assert.equal(edge.commandsRun.length, 1);
+	assert.equal(chrome.commandsRun.length, 0);
 });

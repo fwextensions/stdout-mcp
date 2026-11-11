@@ -53,14 +53,84 @@ test("only a batch that lines up clears a refused batch", () => {
 	assert.equal(store.batchRejection, null);
 });
 
-test("starts over when the buffer ID changes", () => {
+test("keeps a sync position for each browser, without dropping the other's entries", () => {
+	const store = new LogStore();
+
+	store.ingest({ bufferId: "chrome-buffer", syncPosition: 0, entries: [entry(1), entry(2)] });
+	assert.deepEqual(store.ingest({ bufferId: "edge-buffer", syncPosition: 2, entries: [entry(3)] }), { syncPosition: 0 });
+	assert.deepEqual(store.ingest({ bufferId: "edge-buffer", syncPosition: 0, entries: [entry(1)] }), { syncPosition: 1 });
+	assert.deepEqual(store.ingest({ bufferId: "chrome-buffer", syncPosition: 2, entries: [entry(3)] }), { syncPosition: 3 });
+	assert.deepEqual(store.ingest({ bufferId: "edge-buffer", syncPosition: 1, entries: [entry(2)] }), { syncPosition: 2 });
+	assert.deepEqual(store.entries.map(({ seq, browserId, text }) => [seq, browserId, text]), [
+		[1, "chrome-b", "message 1"],
+		[2, "chrome-b", "message 2"],
+		[3, "edge-buf", "message 1"],
+		[4, "chrome-b", "message 3"],
+		[5, "edge-buf", "message 2"],
+	]);
+});
+
+test("a recreated buffer starts its sync position over", () => {
 	const store = new LogStore();
 
 	store.ingest({ bufferId: "a", syncPosition: 0, entries: [entry(1), entry(2)] });
 	assert.deepEqual(store.ingest({ bufferId: "b", syncPosition: 2, entries: [entry(3)] }), { syncPosition: 0 });
-	assert.equal(store.entries.length, 0);
 	store.ingest({ bufferId: "b", syncPosition: 0, entries: [entry(1)] });
-	assert.equal(store.entries.length, 1);
+	assert.equal(store.entries.length, 3);
+});
+
+test("names each browser, and adds the ID to a name two browsers share", () => {
+	const store = new LogStore();
+
+	store.ingest({ bufferId: "aaaa1111-x", browserName: "Chrome 146", syncPosition: null, entries: [] });
+	store.ingest({ bufferId: "bbbb2222-x", browserName: "Chrome 146", syncPosition: null, entries: [] });
+	store.ingest({ bufferId: "cccc3333-x", browserName: " Canary ", syncPosition: null, entries: [] });
+	store.ingest({ bufferId: "dddd4444-x", syncPosition: null, entries: [] });
+
+	assert.deepEqual(store.getBrowsers().map(({ id, label }) => [id, label]).sort(), [
+		["aaaa1111", "Chrome 146 (aaaa1111)"],
+		["bbbb2222", "Chrome 146 (bbbb2222)"],
+		["cccc3333", "Canary"],
+		["dddd4444", "browser dddd4444"],
+	]);
+	assert.deepEqual([...store.findBrowsers("chrome 146")].sort(), ["aaaa1111", "bbbb2222"]);
+	assert.deepEqual([...store.findBrowsers("Chrome 146 (bbbb2222)")], ["bbbb2222"]);
+	assert.deepEqual([...store.findBrowsers("cccc3333")], ["cccc3333"]);
+
+	store.ingest({ bufferId: "cccc3333-x", browserName: "Chrome Canary", syncPosition: null, entries: [] });
+	assert.deepEqual([...store.findBrowsers("chrome canary")], ["cccc3333"]);
+});
+
+test("filters by browser, and keeps each browser's copy of an extension as its own source", () => {
+	const store = new LogStore();
+
+	store.ingest({ bufferId: "chrome", browserName: "Chrome 146", syncPosition: 0, entries: [entry(1, ["from chrome"])] });
+	store.ingest({ bufferId: "edge", browserName: "Edge 146", syncPosition: 0, entries: [entry(1, ["from edge"])] });
+	store.addMark("repro");
+
+	assert.deepEqual(store.query({ filter: { browser: "edge 146" } }).entries.map(({ text }) => text), ["from edge", "repro"]);
+	assert.deepEqual(store.query({ filter: { browser: "nowhere" } }).entries.map(({ text }) => text), ["repro"]);
+	assert.deepEqual(store.getSources().map(({ browserId, extensionId, count }) => [browserId, extensionId, count]), [
+		["chrome", "ext1", 1],
+		["edge", "ext1", 1],
+	]);
+});
+
+test("ties a refused batch to its browser when it's known", () => {
+	const store = new LogStore();
+
+	store.ingest({ bufferId: "chrome", syncPosition: 0, entries: [entry(1)] });
+	store.recordRejectedBatch("too large", "edge");
+	store.recordRejectedBatch("Invalid JSON");
+
+	const browsers = Object.fromEntries(store.getBrowsers().map(({ id, batchRejection }) => [id, batchRejection]));
+
+	assert.deepEqual(browsers, { chrome: null, edge: "too large" });
+	assert.equal(store.batchRejection, "Invalid JSON");
+
+	store.ingest({ bufferId: "chrome", syncPosition: 1, entries: [entry(2)] });
+	assert.equal(store.getBrowsers().find(({ id }) => id === "edge").batchRejection, "too large");
+	assert.equal(store.batchRejection, null);
 });
 
 test("queries the tail or pages forward from a cursor", () => {

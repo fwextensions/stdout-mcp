@@ -21,11 +21,15 @@ The installable product that coding agents are configured to use. It's made up o
 _Avoid_: log server
 
 **Daemon**:
-The single process on a machine that holds logs and answers tools for every agent session.
+The single process on a machine that holds logs and answers tools for every agent session, from every browser.
 _Avoid_: server, log server
 
 **Relay**:
 The per-session process that connects one agent to the daemon.
+
+**Browser**:
+One install of the stdout extension, in one profile of one browser, identified by its buffer ID. Chrome and Edge are two browsers, and so are two profiles of the same Chrome. Agents see it by the name the user gave it in the stdout extension's options, or by its brand and version, like "Edge 146".
+_Avoid_: profile, client, instance
 
 **Daemon Link**:
 The conversation between the stdout extension and the daemon: what each may say to the other, and in what order.
@@ -46,7 +50,7 @@ The stdout extension's ongoing effort, during agent mode, to keep the daemon cau
 _Avoid_: sync engine
 
 **Sync position**:
-The last entry from the stdout extension's buffer that the daemon holds, numbered by the extension.
+The last entry from a browser's buffer that the daemon holds, numbered by that browser's stdout extension. The daemon keeps one for each browser.
 _Avoid_: maxSeq, extensionSeq, serverSeq, afterSeq
 
 **Cursor**:

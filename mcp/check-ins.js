@@ -22,31 +22,102 @@ const FirstCheckInTime = CheckInPeriod + Leeway;
  */
 export const PickupTimeout = CheckInPeriod + 2 * Leeway;
 
+	// a browser that's been quiet this long is probably closed for the day, so
+	// it's no longer worth mentioning while others are checking in
+const ForgetTime = 60 * 60 * 1000;
+
 /**
- * @typedef {object} CheckInStatus
- * @property {number} startedAt  When the daemon started.
- * @property {number} lastIngestAt  When the stdout extension last checked in, or 0.
- * @property {number|null} [daemonLinkVersion]  The Daemon Link version it last
- * sent, 0 if it didn't send one, or null before it checks in.
- * @property {string|null} [batchRejection]  Why its last batch was refused, until
- * one is accepted.
+ * @typedef {import("./store.js").BrowserStatus} BrowserStatus
  */
 
 /**
- * Whether there's no point waiting on the stdout extension, because it has
- * stopped checking in, or never did when it would have by now.
+ * @typedef {object} CheckInStatus
+ * @property {number} startedAt  When the daemon started.
+ * @property {BrowserStatus[]} [browsers]  The browsers whose stdout extension
+ * has checked in, most recent first.
+ * @property {string|null} [batchRejection]  Why the last batch that couldn't be
+ * tied to a browser was refused, until one is accepted.
+ */
+
+/**
+ * Whether there's no point waiting on this browser's stdout extension, because
+ * it has stopped checking in.
+ *
+ * @param {BrowserStatus} browser
+ * @param {number} [now]
+ * @returns {boolean}
+ */
+export function isBrowserDisconnected(
+	{ lastCheckInAt },
+	now = Date.now())
+{
+	return !lastCheckInAt || now - lastCheckInAt > StaleTime;
+}
+
+/**
+ * @param {CheckInStatus} status
+ * @param {number} [now]
+ * @returns {BrowserStatus[]} The browsers whose stdout extension is checking in.
+ */
+export function getConnectedBrowsers(
+	{ browsers = [] },
+	now = Date.now())
+{
+	return browsers.filter((browser) => !isBrowserDisconnected(browser, now));
+}
+
+/**
+ * Whether there's no point waiting on any stdout extension, because they've
+ * all stopped checking in, or none did when one would have by now.
  *
  * @param {CheckInStatus} status
  * @param {number} [now]
  * @returns {boolean}
  */
 export function isExtensionDisconnected(
-	{ lastIngestAt, startedAt },
+	status,
 	now = Date.now())
 {
-	return lastIngestAt
-		? now - lastIngestAt > StaleTime
-		: now - startedAt > FirstCheckInTime;
+	return status.browsers?.length
+		? !getConnectedBrowsers(status, now).length
+		: now - status.startedAt > FirstCheckInTime;
+}
+
+/**
+ * @param {BrowserStatus} browser
+ * @param {boolean} named  Whether to say which browser, because there's more
+ * than one.
+ * @param {number} now
+ * @returns {string[]}
+ */
+function getBrowserNotes(
+	{ label, lastCheckInAt, daemonLinkVersion, batchRejection },
+	named,
+	now)
+{
+	const extension = named ? `the stdout extension in ${label}` : "the stdout extension";
+	const fromIt = named ? ` from ${label}` : "";
+
+	if (now - lastCheckInAt > StaleTime) {
+		return [`Note: ${extension} last checked in ${formatAge(lastCheckInAt, now)}, so agent mode may have been turned off, or the browser may be closed. `
+			+ `Newer logs${fromIt} may be missing.`];
+	}
+
+	if (batchRejection) {
+		return [`Note: the MCP server couldn't accept the last batch of logs${fromIt} (${batchRejection}), so newer logs${fromIt} are missing.`];
+	}
+
+	if (daemonLinkVersion !== null && daemonLinkVersion < DaemonLinkVersion) {
+		return [`Note: ${extension} is older than this MCP server, so logs or commands may not work. `
+			+ "Ask the user to click the reload button for stdout on the browser's extensions page."];
+	}
+
+	if (daemonLinkVersion !== null && daemonLinkVersion > DaemonLinkVersion) {
+		return [`Note: ${extension} is newer than this MCP server, so logs or commands may not work. `
+			+ "Ask the user to update the stdout-mcp package this agent is using."];
+	}
+
+	return [];
 }
 
 /**
@@ -60,34 +131,37 @@ export function isExtensionDisconnected(
  * @returns {string}
  */
 export function getConnectionNote(
-	{ lastIngestAt, startedAt, daemonLinkVersion, batchRejection },
+	{ startedAt, browsers = [], batchRejection },
 	now = Date.now())
 {
-	if (!lastIngestAt) {
-		return `Note: the stdout extension hasn't sent anything since the MCP server started ${formatAge(startedAt, now)}. `
-			+ "If agent mode is on (the stdout toolbar icon in Chrome shows an MCP badge), its stored logs "
-			+ `will arrive within about ${CheckInPeriodSeconds} seconds. `
-			+ "Otherwise, ask the user to click the stdout toolbar icon to turn on agent mode.";
-	}
-
-	if (now - lastIngestAt > StaleTime) {
-		return `Note: the stdout extension last checked in ${formatAge(lastIngestAt, now)}, so agent mode may have been turned off, or Chrome may be closed. `
-			+ "Newer logs may be missing.";
-	}
+	const notes = [];
 
 	if (batchRejection) {
-		return `Note: the MCP server couldn't accept the stdout extension's last batch of logs (${batchRejection}), so newer logs are missing.`;
+		notes.push(`Note: the MCP server couldn't accept the stdout extension's last batch of logs (${batchRejection}), so newer logs are missing.`);
 	}
 
-	if (daemonLinkVersion < DaemonLinkVersion) {
-		return "Note: the stdout extension running in Chrome is older than this MCP server, so logs or commands may not work. "
-			+ "Ask the user to click the reload button for stdout on chrome://extensions.";
+	if (!browsers.some(({ lastCheckInAt }) => lastCheckInAt)) {
+		if (!batchRejection) {
+			notes.push(`Note: the stdout extension hasn't sent anything since the MCP server started ${formatAge(startedAt, now)}. `
+				+ "If agent mode is on (the stdout toolbar icon shows an MCP badge), its stored logs "
+				+ `will arrive within about ${CheckInPeriodSeconds} seconds. `
+				+ "Otherwise, ask the user to click the stdout toolbar icon to turn on agent mode.");
+		}
+
+		return notes.join("\n");
 	}
 
-	if (daemonLinkVersion > DaemonLinkVersion) {
-		return "Note: the stdout extension running in Chrome is newer than this MCP server, so logs or commands may not work. "
-			+ "Ask the user to update the stdout-mcp package this agent is using.";
+	const connected = getConnectedBrowsers({ startedAt, browsers }, now);
+		// while some browser is checking in, one that's been gone a long time isn't
+		// worth a note.  when none is, the most recent one is.
+	const relevant = connected.length
+		? browsers.filter(({ lastCheckInAt }) => now - lastCheckInAt <= ForgetTime)
+		: [browsers[0]];
+	const named = browsers.filter(({ lastCheckInAt }) => now - lastCheckInAt <= ForgetTime).length > 1;
+
+	for (const browser of relevant) {
+		notes.push(...getBrowserNotes(browser, named, now));
 	}
 
-	return "";
+	return notes.join("\n");
 }

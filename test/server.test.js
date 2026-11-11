@@ -240,13 +240,13 @@ async function answerReload(
 	reloadManifest)
 {
 	const call = callTool("reload_extension", { extension: "Test Extension", reloadManifest });
-	const commands = await link.pollCommands();
+	const commands = await link.pollCommands(bufferId);
 
 	assert.deepEqual(
 		commands.map(({ name, args }) => ({ name, args })),
 		[{ name: "reload", args: { extension: "Test Extension", ...(reloadManifest && { reloadManifest }) } }]
 	);
-	await link.sendCommandResult(commands[0].id, outcome);
+	await link.sendCommandResult(bufferId, commands[0].id, outcome);
 
 	return call;
 }
@@ -287,9 +287,9 @@ test("the reload cursor includes logs that arrive before the extension gets the 
 	await new Promise((resolve) => setTimeout(resolve, 200));
 	await send(entry(["backlog"]));
 
-	const commands = await link.pollCommands();
+	const commands = await link.pollCommands(bufferId);
 
-	await link.sendCommandResult(commands[0].id, { result: { id: "abc", name: "Test Extension", manifest: "skipped" } });
+	await link.sendCommandResult(bufferId, commands[0].id, { result: { id: "abc", name: "Test Extension", manifest: "skipped" } });
 	assert.match(await call, /cursor: \w+:9 /);
 });
 
@@ -326,7 +326,7 @@ test("warns when the extension's Daemon Link version differs", async () => {
 	const check = (body) => post(LinkRoutes.Ingest, { bufferId, syncPosition, entries: [], ...body })
 		.then(() => callTool("get_logs", { limit: 1 }));
 
-	assert.match(await check({}), /Note: the stdout extension running in Chrome is older .*reload button/);
+	assert.match(await check({}), /Note: the stdout extension is older .*reload button/);
 	assert.match(await check({ linkVersion: DaemonLinkVersion - 1 }), /is older/);
 	assert.match(await check({ linkVersion: DaemonLinkVersion + 1 }), /is newer .*update the stdout-mcp package/);
 
@@ -343,4 +343,34 @@ test("tells agents when a batch is too big, until one is accepted", async () => 
 
 	await send(entry(["after the big one"]));
 	assert.doesNotMatch(await callTool("get_logs", { limit: 1 }), /couldn't accept/);
+});
+
+	// this adds a second browser, so it runs last
+test("tells agents which browser each entry came from when there's more than one", async () => {
+	const edgeBuffer = [{ ...entry(["from edge"]), seq: 1 }];
+
+	await link.catchUp({
+		bufferId: "edge-buffer",
+		browserName: "Edge 146",
+		syncPosition: null,
+		getEntriesAfter: async (position, limit) => edgeBuffer.filter(({ seq }) => seq > position).slice(0, limit),
+	});
+	await send(entry(["from the first browser"]));
+
+	const logs = await callTool("get_logs", { limit: 2 });
+
+	assert.match(logs, /\[log\] Test Extension\/sw\.js \(Edge 146\): from edge/);
+	assert.match(logs, /\[log\] Test Extension\/sw\.js \(browser test\): from the first browser/);
+	assert.doesNotMatch(await callTool("get_logs", { limit: 2, browser: "Edge 146" }), /first browser/);
+
+	const sources = await callTool("list_sources");
+
+	assert.match(sources, /Browsers:\n(- .*\n)*- Edge 146 \(edge-buf\): the stdout extension last checked in/);
+	assert.match(sources, /Test Extension \(abcdefghijklmnopabcdefghijklmnop\) in Edge 146: 1 entries/);
+
+	const call = callTool("reload_extension", { extension: "Test Extension", browser: "edge 146" });
+	const [command] = await link.pollCommands("edge-buffer");
+
+	await link.sendCommandResult("edge-buffer", command.id, { result: { id: "abc", name: "Test Extension", manifest: "skipped" } });
+	assert.match(await call, /Reloaded the code of Test Extension \(abc\) in Edge 146/);
 });

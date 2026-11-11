@@ -2,7 +2,7 @@
 import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { CommandNames, CommandRunSeconds, ManifestStatus } from "../extension/daemon-link.js";
-import { getConnectionNote, isExtensionDisconnected, PickupTimeout } from "./check-ins.js";
+import { getConnectedBrowsers, getConnectionNote, isExtensionDisconnected, PickupTimeout } from "./check-ins.js";
 import { formatAge } from "./format.js";
 
 /** @typedef {import("@modelcontextprotocol/server").CallToolResult} CallToolResult */
@@ -14,10 +14,10 @@ import { formatAge } from "./format.js";
  * @property {string} bootId
  * @property {string} codeVersion  Hash of the code the daemon was started from.
  * @property {number} startedAt
- * @property {number} lastIngestAt  When the stdout extension last sent entries, or 0.
- * @property {number|null} daemonLinkVersion  The Daemon Link version it last sent.
- * @property {string|null} batchRejection  Why its last batch was refused, until
- * one is accepted.
+ * @property {import("./store.js").BrowserStatus[]} browsers  The browsers whose
+ * stdout extension has checked in, most recent first.
+ * @property {string|null} batchRejection  Why the last batch that couldn't be
+ * tied to a browser was refused, until one is accepted.
  * @property {number} maxSeq
  * @property {number} entryCount
  */
@@ -33,6 +33,11 @@ extensions and pages have logged. Logs from every extension are mixed \
 together, so when you know which extension you're working on, such as from \
 the name in the project's manifest.json, pass it as \`extension\`. get_logs \
 says when its results come from more than one extension.
+
+The stdout extension can run in more than one browser at once, such as Chrome \
+and Edge, or Chrome and Canary. Each entry then says which browser it came \
+from, and \`browser\` limits results to one of them. list_sources lists the \
+browsers by the names the user gave them, or by brand and version.
 
 Every result includes a cursor; pass it as \
 \`after\` to get only newer entries. Use \`since\` to limit results to a recent \
@@ -58,6 +63,8 @@ const filterShape = {
 		.describe('Console methods to include, like ["error", "warn"]. Defaults to all.'),
 	extension: z.string().optional()
 		.describe("Only include logs from this extension, by ID or exact name."),
+	browser: z.string().optional()
+		.describe("Only include logs from this browser, by the name or ID that list_sources shows."),
 	filename: z.string().optional()
 		.describe('Only include logs from pages or scripts whose filename contains this, like "popup".'),
 	search: z.string().optional()
@@ -130,8 +137,9 @@ function formatDelta(
 }
 
 function formatEntry(
-	{ seq, time, method, extensionId, extensionName, filename, text, mark, newLoad },
-	previousTime)
+	{ seq, time, method, extensionId, extensionName, browserId, filename, text, mark, newLoad },
+	previousTime,
+	browserLabels)
 {
 		// show how long it's been since the previous line, which is what matters
 		// when debugging timing problems
@@ -142,7 +150,8 @@ function formatEntry(
 		return `${prefix} --- mark: ${text} ---`;
 	}
 
-	const source = `${extensionName ?? extensionId}/${filename}`;
+	const browser = browserLabels && ` (${browserLabels.get(browserId) ?? browserId})`;
+	const source = `${extensionName ?? extensionId}/${filename}${browser || ""}`;
 		// indent continuation lines, like stack traces, under the entry
 	const body = text.replaceAll("\n", "\n    ");
 	const line = `${prefix} [${method}] ${source}: ${body}`;
@@ -150,12 +159,22 @@ function formatEntry(
 	return newLoad ? `--- ${source} loaded ---\n${line}` : line;
 }
 
+/**
+ * @param {object[]} entries
+ * @param {Map<string, string>} [browserLabels]  If the entries come from more
+ * than one browser, each one says which, by these labels.
+ * @returns {string}
+ */
 function formatEntries(
-	entries)
+	entries,
+	browserLabels = new Map())
 {
+	const browserIds = new Set(entries.filter(({ mark }) => !mark).map(({ browserId }) => browserId));
+	const labels = browserIds.size > 1 ? browserLabels : null;
+
 	return entries.map((entry, i) => {
 		const previousTime = entries[i - 1]?.time;
-		const line = formatEntry(entry, previousTime);
+		const line = formatEntry(entry, previousTime, labels);
 			// each line only shows the time of day, so add a line with the date
 			// when it changes
 		const showDate = entry.time
@@ -194,9 +213,10 @@ function parseSince(
  * @returns {string}
  */
 function getReloadMessage(
-	{ id, name, manifest, version })
+	{ id, name, manifest, version },
+	where = "")
 {
-	const extension = `${name} (${id})`;
+	const extension = `${name} (${id})${where}`;
 
 	switch (manifest) {
 		case ManifestStatus.Reloaded:
@@ -253,6 +273,76 @@ function getMixedSourcesNote(
 
 	return `These entries come from ${counts.size} extensions: ${list}. `
 		+ "To see only one, pass its name or ID as `extension`.";
+}
+
+/**
+ * @param {DaemonStatus} status
+ * @returns {Map<string, string>} Each browser's label, by its ID.
+ */
+function getBrowserLabels(
+	{ browsers = [] })
+{
+	return new Map(browsers.map(({ id, label }) => [id, label]));
+}
+
+/**
+ * Pick the browser to reload an extension in: the one that has logged from it,
+ * or the only one checking in.
+ *
+ * @param {{ extension: string, browser?: string }} target
+ * @param {DaemonStatus} status
+ * @param {import("./store.js").LogStore} store
+ * @returns {import("./store.js").BrowserStatus|null} Null if no browser has
+ * checked in yet, but one may soon.
+ */
+function chooseBrowser(
+	{ extension, browser },
+	status,
+	store)
+{
+	const browsers = status.browsers ?? [];
+	let candidates = browsers;
+
+	if (browser) {
+		const ids = store.findBrowsers(browser);
+
+		candidates = browsers.filter(({ id }) => ids.has(id));
+
+		if (!candidates.length) {
+			throw new Error(`No browser called "${browser}" has checked in. `
+				+ (browsers.length
+					? `These have: ${browsers.map(({ label, id }) => `${label} (${id})`).join(", ")}.`
+					: getConnectionNote(status)));
+		}
+	}
+
+	const lower = extension.toLowerCase();
+	const logged = new Set(store.getSources()
+		.filter(({ extensionId, extensionName }) => extensionId === extension
+			|| extensionName?.toLowerCase() === lower)
+		.map(({ browserId }) => browserId));
+	const havingIt = candidates.filter(({ id }) => logged.has(id));
+		// an extension that hasn't logged may still be in a browser, whose stdout
+		// extension will say what can be reloaded if it isn't
+	const targets = havingIt.length ? havingIt : candidates;
+	const connected = getConnectedBrowsers({ ...status, browsers: targets });
+
+	if (connected.length === 1) {
+		return connected[0];
+	}
+
+		// right after the daemon starts, a browser may not have checked in yet.
+		// whichever one asks for commands first gets the reload.
+	if (!browsers.length && !browser && !isExtensionDisconnected(status)) {
+		return null;
+	}
+
+	if (connected.length > 1) {
+		throw new Error(`${extension} could be reloaded in more than one browser: `
+			+ `${connected.map(({ label }) => label).join(", ")}. Pass one of those as \`browser\` to say which.`);
+	}
+
+	throw new Error(`Can't reload ${extension} right now. ${getConnectionNote(status)}`);
 }
 
 /**
@@ -325,13 +415,15 @@ export function createMcpServer(
 					filter: { ...filter, since: parseSince(since) },
 				});
 
+				const status = getStatus();
+
 				return textResult(
 					cursorReset && "The MCP server restarted since that cursor was issued, so it no longer applies. These are the latest entries.",
-					entries.length ? formatEntries(entries) : "No matching log entries.",
+					entries.length ? formatEntries(entries, getBrowserLabels(status)) : "No matching log entries.",
 					hasMore && "There may be more entries after these.",
 					getMixedSourcesNote(entries),
 					`cursor: ${cursor} (pass as \`after\` to get only newer entries)`,
-					getConnectionNote(getStatus())
+					getConnectionNote(status)
 				);
 			} catch (error) {
 				return errorResult(error);
@@ -355,6 +447,7 @@ export function createMcpServer(
 					.describe("How long to wait. Defaults to 30."),
 				levels: filterShape.levels,
 				extension: filterShape.extension,
+				browser: filterShape.browser,
 				filename: filterShape.filename,
 			}),
 			annotations: { readOnlyHint: true },
@@ -373,14 +466,15 @@ export function createMcpServer(
 				ctx.mcpReq.signal.addEventListener("abort", cancel);
 
 				const { entries, cursor, cursorReset, timedOut } = await promise;
+				const status = getStatus();
 
 				return textResult(
 					cursorReset && "The MCP server restarted since that cursor was issued, so this only waited for new entries. A match logged before this call could have been missed.",
 					timedOut
 						? `No matching log entry within ${timeoutSeconds} seconds.`
-						: formatEntries(entries),
+						: formatEntries(entries, getBrowserLabels(status)),
 					`cursor: ${cursor} (pass as \`after\` to get only newer entries)`,
-					getConnectionNote(getStatus())
+					getConnectionNote(status)
 				);
 			} catch (error) {
 				return errorResult(error);
@@ -426,21 +520,23 @@ export function createMcpServer(
 			inputSchema: z.object({
 				extension: z.string()
 					.describe("The extension to reload, by ID or exact name."),
+				browser: z.string().optional()
+					.describe("The browser to reload it in, by the name or ID that list_sources shows. Only "
+						+ "needed when the extension is in more than one browser."),
 				reloadManifest: z.boolean().optional()
 					.describe("Also read manifest.json again. Needs the current stdout-mcp library, with "
 						+ "stdout() called when the service worker starts. Defaults to false."),
 			}),
 		},
-		async ({ extension, reloadManifest }, ctx) => {
+		async ({ extension, browser, reloadManifest }, ctx) => {
 			try {
 				const status = getStatus();
-
-					// don't make the agent wait for an answer that won't come
-				if (isExtensionDisconnected(status)) {
-					throw new Error(`Can't reload ${extension} right now. ${getConnectionNote(status)}`);
-				}
+					// this also keeps the agent from waiting for an answer that won't come
+				const target = chooseBrowser({ extension, browser }, status, store);
+				const where = target && (status.browsers?.length ?? 0) > 1 ? ` in ${target.label}` : "";
 
 				const { promise, cancel } = commands.send(CommandNames.Reload, { extension, reloadManifest }, {
+					browserId: target?.id,
 					pickupTimeout: PickupTimeout,
 					runTimeout: CommandRunSeconds * 1000,
 				});
@@ -450,13 +546,13 @@ export function createMcpServer(
 				const { result, error, timedOut, cancelled, cursor } = await promise;
 
 				if (timedOut === "pickup") {
-					throw new Error(`The stdout extension didn't pick up the reload within ${PickupTimeout / 1000} seconds. `
+					throw new Error(`The stdout extension${where} didn't pick up the reload within ${PickupTimeout / 1000} seconds. `
 						+ (getConnectionNote(getStatus()) || "Chrome may be busy, so try again."));
 				}
 
 					// the reload may have worked, so a retry could reload it twice
 				if (timedOut === "result") {
-					throw new Error(`The stdout extension started reloading ${extension}, but didn't say how it went `
+					throw new Error(`The stdout extension started reloading ${extension}${where}, but didn't say how it went `
 						+ `within ${CommandRunSeconds} seconds. Check its logs before trying again, since it may `
 						+ `have reloaded.\n\ncursor: ${cursor} (pass as \`after\` to get the entries logged since `
 						+ "the reload started)");
@@ -471,7 +567,7 @@ export function createMcpServer(
 				}
 
 				return textResult(
-					getReloadMessage(result),
+					getReloadMessage(result, where),
 					`cursor: ${cursor} (pass as \`after\` to get the entries logged since the reload)`
 				);
 			} catch (error) {
@@ -484,29 +580,33 @@ export function createMcpServer(
 		"list_sources",
 		{
 			title: "List log sources",
-			description: "List the Chrome extensions and pages that have sent logs, and whether the "
-				+ "stdout extension is currently connected.",
+			description: "List the Chrome extensions and pages that have sent logs, and the browsers "
+				+ "the stdout extension is sending them from.",
 			inputSchema: z.object({}),
 			annotations: { readOnlyHint: true },
 		},
 		async () => {
 			try {
 				const result = { ...getStatus(), sources: store.getSources() };
-				const status = `MCP server started ${formatAge(result.startedAt)} and holds ${result.entryCount} entries. `
-					+ (result.lastIngestAt
-						? `The stdout extension last checked in ${formatAge(result.lastIngestAt)}.`
-						: "The stdout extension hasn't checked in yet.");
-				const sources = result.sources.map(({ extensionId, extensionName, count, lastTime, filenames }) => {
+				const browsers = result.browsers ?? [];
+				const labels = getBrowserLabels(result);
+				const status = `MCP server started ${formatAge(result.startedAt)} and holds ${result.entryCount} entries.`
+					+ (browsers.length ? "" : " The stdout extension hasn't checked in yet.");
+				const browserList = browsers.map(({ id, label, lastCheckInAt }) =>
+					`- ${label} (${id}): the stdout extension last checked in ${formatAge(lastCheckInAt)}`);
+				const sources = result.sources.map(({ extensionId, extensionName, browserId, count, lastTime, filenames }) => {
 					const files = Object.entries(filenames)
 						.map(([filename, fileCount]) => `${filename} (${fileCount})`)
 						.join(", ");
+					const where = browsers.length > 1 ? ` in ${labels.get(browserId) ?? browserId}` : "";
 
-					return `- ${extensionName ?? "unnamed extension"} (${extensionId}): ${count} entries, `
+					return `- ${extensionName ?? "unnamed extension"} (${extensionId})${where}: ${count} entries, `
 						+ `last at ${formatTime(lastTime)}; files: ${files}`;
 				});
 
 				return textResult(
 					status,
+					browserList.length && `Browsers:\n${browserList.join("\n")}`,
 					sources.length ? `Extensions:\n${sources.join("\n")}` : "No extensions have sent logs yet.",
 					getConnectionNote(result)
 				);
