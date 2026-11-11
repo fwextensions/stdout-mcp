@@ -33,11 +33,7 @@ function createWorld(
 	};
 	const receive = createTapReceiver({
 		storeEntry: async (entry) => world.entries.push(entry),
-		console: {
-			...QuietConsole,
-			log: (...args) => world.echoed.push(["log", ...args]),
-			warn: (...args) => world.echoed.push(["warn", ...args]),
-		},
+		console: Object.fromEntries(Object.keys(console).map((method) => [method, (...args) => world.echoed.push([method, ...args])])),
 	});
 		// extension messages arrive as JSON.  like Chrome, give up on an answer if
 		// the listener doesn't send one right away or return true to send it later.
@@ -197,6 +193,30 @@ test("a tap's errors are echoed as labeled warnings", async (t) => {
 	assert.equal(world.echoed[0][0], "warn");
 	assert.match(world.echoed[0][1], /^%cerror /);
 	assert.equal(world.echoed[0].at(-1), "broken");
+});
+
+test("a tap's assertions, counters and tables still work when echoed", async (t) => {
+	const world = createWorld(t);
+	const tap = await startTap(world, { worker: false });
+
+	tap.assert(true, "passes");
+	tap.assert(false, "fails %s", "badly");
+	tap.count("clicks");
+	tap.count();
+	tap.table([{ a: 1 }]);
+	await advance(t, 0);
+
+		// agents get every call, whatever the echo shows
+	assert.deepEqual(world.entries.map(({ method }) => method), ["assert", "assert", "count", "count", "table"]);
+	assert.deepEqual(world.echoed.map(([method]) => method), ["warn", "count", "count", "log", "table"]);
+
+	const [, format, ...rest] = world.echoed[0];
+
+	assert.match(format, /^%cassertion failed %c%s%c fails %s$/);
+	assert.equal(rest.at(-1), "badly");
+	assert.deepEqual(world.echoed[1], ["count", "popup.html clicks"]);
+	assert.deepEqual(world.echoed[2], ["count", "popup.html default"]);
+	assert.deepEqual(world.echoed[4], ["table", [{ a: 1 }]]);
 });
 
 test("a worker's tap listens for reloads before it registers", async (t) => {

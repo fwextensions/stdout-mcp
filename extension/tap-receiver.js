@@ -7,6 +7,13 @@ const ResetStyle = "color: initial";
 const ErrorLabelStyle = "color: light-dark(#c00, #f66); font-weight: bold";
 	// ignore %%, which escapes the % character
 const SubstitutionPattern = /%[^%]/;
+	// these take a label as their first argument, so the sender goes in the label
+	// instead of in front of it, which also keeps each tap's counters and timers
+	// apart
+const LabelMethods = new Set(["count", "countReset", "time", "timeLog", "timeEnd"]);
+	// these show their first argument as a structure, which a label in front of
+	// it would replace, so the label goes on its own line
+const StructureMethods = new Set(["table", "dir", "dirxml"]);
 
 /**
  * Echo a tap's console call in this extension's console, labeled with where it
@@ -14,23 +21,62 @@ const SubstitutionPattern = /%[^%]/;
  */
 function echo(
 	console,
-	{ method, args, filename },
+	{ method, args },
 	senderInfo)
 {
 	if (typeof console[method] !== "function") {
 		return;
 	}
 
-	const [firstArg, ...rest] = args;
+	if (method === "assert") {
+		const [condition, ...rest] = args;
+
+		if (!fromJSONSafe(condition)) {
+				// show a failed assertion the way errors are shown below
+			echoWithLabel(console, "warn", ["%cassertion failed %c%s", ErrorLabelStyle, FilenameStyle, senderInfo], rest);
+		}
+
+		return;
+	}
+
+	if (LabelMethods.has(method)) {
+		const [label = "default", ...rest] = args.map(fromJSONSafe);
+
+		console[method](`${senderInfo} ${label}`, ...rest);
+
+		return;
+	}
+
+	if (StructureMethods.has(method)) {
+		console.log("%c%s", FilenameStyle, senderInfo);
+		console[method](...args.map(fromJSONSafe));
+
+		return;
+	}
+
 		// Chrome lists console.error() calls on chrome://extensions as errors in
 		// this extension, so show other extensions' errors as labeled warnings
-	const isError = method === "error";
-	const label = isError
-		? ["%cerror %c%s", ErrorLabelStyle, FilenameStyle, senderInfo]
-		: ["%c%s", FilenameStyle, senderInfo];
+	if (method === "error") {
+		echoWithLabel(console, "warn", ["%cerror %c%s", ErrorLabelStyle, FilenameStyle, senderInfo], args);
+	} else {
+		echoWithLabel(console, method, ["%c%s", FilenameStyle, senderInfo], args);
+	}
+}
+
+/**
+ * Call a console method with a styled label in front of the arguments, keeping
+ * any string substitutions in the first argument working.
+ */
+function echoWithLabel(
+	console,
+	method,
+	label,
+	args)
+{
+	const [firstArg, ...rest] = args;
 	let outputArgs = [...label, ...args.map(fromJSONSafe)];
 
-	if (SubstitutionPattern.test(firstArg) && rest.length) {
+	if (typeof firstArg === "string" && SubstitutionPattern.test(firstArg) && rest.length) {
 			// firstArg contains a string substitution and there are additional args
 			// that can be substituted in.  (a string with a % in it but no following
 			// args, like "Pct light speed (%c)", wouldn't trigger a substitution.)
@@ -47,7 +93,7 @@ function echo(
 		];
 	}
 
-	console[isError ? "warn" : method](...outputArgs);
+	console[method](...outputArgs);
 }
 
 /**

@@ -195,7 +195,13 @@ test("reports bad patterns as tool errors", async () => {
 	const result = await client.callTool({ name: "get_logs", arguments: { search: "(" } });
 
 	assert.equal(result.isError, true);
-	assert.match(result.content[0].text, /Invalid regular expression/);
+	assert.match(result.content[0].text, /^Invalid regular expression: \/\(\/i: /);
+	assert.doesNotMatch(result.content[0].text, /Invalid regular expression:.*Invalid regular expression/);
+
+	const waited = await client.callTool({ name: "wait_for_log", arguments: { pattern: "(" } });
+
+	assert.equal(waited.isError, true);
+	assert.match(waited.content[0].text, /^Invalid regular expression: \/\(\/i: /);
 });
 
 test("marks the log and shows page loads and time deltas", async () => {

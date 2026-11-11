@@ -74,8 +74,18 @@ const Encoder = new TextEncoder();
  */
 
 /**
+ * @typedef {object} ReloadResult  What a reload command did.
+ * @property {string} id
+ * @property {string} name
+ * @property {string} manifest  One of the ManifestStatus values.
+ * @property {string} [version]  The extension's version after the reload, when
+ * manifest.json was read again.
+ */
+
+/**
  * @typedef {object} CommandResult
- * @property {any} [result]  What the stdout extension returned.
+ * @property {ReloadResult} [result]  What the command did.  Reload is the only
+ * command so far.
  * @property {string} [error]  Why the stdout extension couldn't run the command.
  */
 

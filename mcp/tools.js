@@ -189,6 +189,10 @@ function parseSince(
 	return time;
 }
 
+/**
+ * @param {import("../extension/daemon-link.js").ReloadResult} result
+ * @returns {string}
+ */
 function getReloadMessage(
 	{ id, name, manifest, version })
 {
@@ -276,18 +280,6 @@ function errorResult(
 	};
 }
 
-function validateSearch(
-	pattern)
-{
-	if (pattern) {
-		try {
-			new RegExp(pattern, "i");
-		} catch (error) {
-			throw new Error(`Invalid regular expression: ${error.message}`);
-		}
-	}
-}
-
 /**
  * Create an MCP server whose tools read from the daemon's log store.  The
  * daemon creates one for each request, so they're cheap to make.
@@ -325,7 +317,7 @@ export function createMcpServer(
 		},
 		async ({ after, around, limit = around === undefined ? 100 : 21, since, ...filter }) => {
 			try {
-				validateSearch(filter.search);
+					// a bad search pattern throws here, with a message that says so
 				const { entries, cursor, cursorReset, hasMore } = store.query({
 					after,
 					around,
@@ -369,7 +361,6 @@ export function createMcpServer(
 		},
 		async ({ pattern, after, timeoutSeconds = 30, ...filter }, ctx) => {
 			try {
-				validateSearch(pattern);
 				const { promise, cancel } = store.wait({
 					after,
 					limit: 100,

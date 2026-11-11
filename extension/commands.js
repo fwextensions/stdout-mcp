@@ -1,17 +1,22 @@
-import { CommandNames, ManifestStatus } from "./daemon-link.js";
+import { CommandNames, CommandRunSeconds, ManifestStatus } from "./daemon-link.js";
 import { createReloadMessage } from "./tap-link.js";
 
 const RegisteredPrefix = "registered:";
 	// a reload waits on these at most WakeTimeout + ReloadAnswerTimeout, then
-	// RestartTimeout + ReloadAnswerTimeout + RestartTimeout, or 35 seconds, which
-	// has to stay under the daemon's CommandRunSeconds.  waking a service worker
-	// can take a moment.
+	// RestartTimeout + ReloadAnswerTimeout + RestartTimeout, or 35 seconds.
+	// waking a service worker can take a moment.
 const ReloadAnswerTimeout = 5 * 1000;
 const RestartTimeout = 10 * 1000;
 const WakeTimeout = 5 * 1000;
+	// answer before the daemon gives up on us, leaving time for the answer to
+	// get there
+const CommandDeadline = (CommandRunSeconds - 2) * 1000;
 
 	// avoids writing to storage for every message once a sender is recorded
 const registeredIDs = new Set();
+	// a set of waiters for each extension, since two reloads can wait on one
+	// restart
+	/** @type {Map<string, Set<(restarted: boolean) => void>>} */
 const restartWaiters = new Map();
 
 /**
@@ -41,23 +46,39 @@ export function registerExtension(
 export function notifyWorkerStarted(
 	id)
 {
-	restartWaiters.get(id)?.(true);
+	for (const finish of restartWaiters.get(id) ?? []) {
+		finish(true);
+	}
 }
 
+/**
+ * @returns {{ restarted: Promise<boolean>, cancel: () => void }}
+ */
 function waitForRestart(
 	id,
 	timeout = RestartTimeout)
 {
-	return new Promise((resolve) => {
-		const finish = (restarted) => {
-			clearTimeout(timer);
-			restartWaiters.delete(id);
-			resolve(restarted);
-		};
+	const waiters = restartWaiters.get(id) ?? new Set();
+	let finish;
+	const restarted = new Promise((resolve) => {
 		const timer = setTimeout(() => finish(false), timeout);
 
-		restartWaiters.set(id, finish);
+		finish = (didRestart) => {
+			clearTimeout(timer);
+			waiters.delete(finish);
+
+			if (!waiters.size) {
+				restartWaiters.delete(id);
+			}
+
+			resolve(didRestart);
+		};
 	});
+
+	waiters.add(finish);
+	restartWaiters.set(id, waiters);
+
+	return { restarted, cancel: () => finish(false) };
 }
 
 	// the extension only answers if its service worker can run and its tap
@@ -82,7 +103,7 @@ async function askToReload(
 async function askWorkerToReload(
 	id)
 {
-	const registered = waitForRestart(id, WakeTimeout);
+	const { restarted: registered, cancel } = waitForRestart(id, WakeTimeout);
 	const answered = askToReload(id);
 		// a failed ask says nothing about the worker, so keep waiting for it to register
 	const outcome = await Promise.race([
@@ -91,7 +112,7 @@ async function askWorkerToReload(
 	]);
 
 	if (outcome === "answered") {
-		restartWaiters.get(id)?.(false);
+		cancel();
 
 		return true;
 	}
@@ -102,7 +123,7 @@ async function askWorkerToReload(
 async function confirmFullReload(
 	id)
 {
-	const restarted = await waitForRestart(id);
+	const restarted = await waitForRestart(id).restarted;
 	const installed = await chrome.management.get(id).catch(() => null);
 
 	if (!installed?.enabled) {
@@ -138,6 +159,9 @@ async function findExtension(
 	return matches[0];
 }
 
+/**
+ * @returns {Promise<import("./daemon-link.js").ReloadResult>}
+ */
 async function reloadExtension(
 	{ extension, reloadManifest })
 {
@@ -162,7 +186,7 @@ async function reloadExtension(
 		// wait until the old worker is gone, so that only the new one can count.
 		// if the message above didn't get an answer, this restart may still leave a
 		// worker that can give one.
-	const restarted = reloadManifest && waitForRestart(id);
+	const restarted = reloadManifest && waitForRestart(id).restarted;
 
 	await chrome.management.setEnabled(id, true);
 
@@ -178,14 +202,37 @@ const Commands = {
 };
 
 /**
- * @returns {Promise<{ result?: any, error?: string }>}
+ * Run a command from the daemon.  It always answers within the Daemon Link's
+ * CommandRunSeconds, even if the command itself is still running.
+ *
+ * @param {import("./daemon-link.js").Command} command
+ * @returns {Promise<import("./daemon-link.js").CommandResult>}
  */
 export async function runCommand(
 	{ name, args })
 {
+	const command = Object.hasOwn(Commands, name) && Commands[name];
+
+	if (!command) {
+		return { error: `The stdout extension doesn't know the "${name}" command. It may be older than the MCP server.` };
+	}
+
+	let timer;
+	const deadline = new Promise((resolve) => {
+		timer = setTimeout(resolve, CommandDeadline, {
+			error: `The stdout extension couldn't finish the ${name} command within ${CommandDeadline / 1000} seconds. `
+				+ "It may still finish, so check the logs before trying again.",
+		});
+	});
+
 	try {
-		return { result: await Commands[name](args) };
+		return await Promise.race([
+			command(args).then((result) => ({ result })),
+			deadline,
+		]);
 	} catch (error) {
 		return { error: error.message };
+	} finally {
+		clearTimeout(timer);
 	}
 }

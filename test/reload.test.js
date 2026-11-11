@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { setImmediate as nextTurn } from "node:timers/promises";
 import { notifyWorkerStarted, runCommand } from "../extension/commands.js";
-import { CommandNames, ManifestStatus } from "../extension/daemon-link.js";
+import { CommandNames, CommandRunSeconds, ManifestStatus } from "../extension/daemon-link.js";
 
 const ID = "abc";
 const WakeTimeout = 5 * 1000;
@@ -21,6 +21,8 @@ function installChrome(
 		registersBeforeAnswering = false,
 		answersAfterRestart = true,
 		registersAfterRestart = true,
+		restartDelay = 0,
+		togglingHangs = false,
 	} = {})
 {
 	const calls = { asks: 0, toggles: [] };
@@ -41,6 +43,11 @@ function installChrome(
 			get: async () => ({ id: ID, enabled: true, version: "1.2.3" }),
 			setEnabled: async (id, enabled) => {
 				calls.toggles.push(enabled);
+
+				if (togglingHangs) {
+					return new Promise(() => {});
+				}
+
 				listening = enabled && answersAfterRestart;
 
 				if (enabled && registersAfterRestart) {
@@ -81,7 +88,12 @@ function installChrome(
 					// like a tap, only reload once however many times we're asked
 				if (!reloading) {
 					reloading = true;
-					nextTurn().then(() => notifyWorkerStarted(id));
+
+					if (restartDelay) {
+						setTimeout(() => notifyWorkerStarted(id), restartDelay);
+					} else {
+						nextTurn().then(() => notifyWorkerStarted(id));
+					}
 				}
 
 				return true;
@@ -212,4 +224,38 @@ test("only restarts the extension when the manifest isn't wanted", async (t) => 
 	assert.equal(result.manifest, ManifestStatus.Skipped);
 	assert.equal(calls.asks, 0);
 	assert.deepEqual(calls.toggles, [false, true]);
+});
+
+test("tells two reloads of the same extension at once that it restarted", async (t) => {
+	installChrome(t, { awake: true, restartDelay: 100 });
+
+	const pending = Promise.all([reload(true), reload(true)]);
+
+	await advance(t, 100);
+	await advance(t, RestartTimeout);
+
+	const results = await pending;
+
+	assert.deepEqual(results.map(({ result }) => result.manifest), [ManifestStatus.Reloaded, ManifestStatus.Reloaded]);
+});
+
+test("answers before the daemon gives up, even if a command is still running", async (t) => {
+	installChrome(t, { togglingHangs: true });
+
+	const pending = reload(false);
+	let answer;
+
+	pending.then((result) => answer = result);
+	await advance(t, (CommandRunSeconds - 3) * 1000);
+	assert.equal(answer, undefined);
+	await advance(t, 1000);
+
+	const { error } = await pending;
+
+	assert.match(error, /couldn't finish the reload command within 38 seconds.*may still finish/s);
+	assert.ok(38 < CommandRunSeconds);
+});
+
+test("says when it doesn't know a command", async () => {
+	assert.match((await runCommand({ name: "toString", args: {} })).error, /doesn't know the "toString" command/);
 });
