@@ -27,24 +27,33 @@ You can also let a coding agent read the output directly.  See [Reading logs fro
 
 ## Usage
 
-To send logs from your extension, import `stdout()` from the package and call it with the `stdout` extension ID.  The ID is fixed by the extension's manifest, so it's always `lnkfeennpkaoelponfafleomlmgjfjok`, which the package exports as `STDOUT_ID`.  (Versions before 0.1.0 had no fixed ID, so if you upgrade, replace the ID you used before.)
+To send logs from your extension, import `stdout()` from the package and call it:
 
 ```js
 // service-worker.js
-import stdout, { STDOUT_ID } from "stdout-mcp";
+import stdout from "stdout-mcp";
 
-stdout(STDOUT_ID);
+stdout();
 console.log("my important message", { hello: "world" });
 ```
 
 By default, the global `console` object will be wrapped with methods that forward all calls to the `stdout` extension, so anything passed to `console.log()`, `console.error()`, etc. in your extension will also be displayed in the `stdout` service worker's console.  Calls to `console.error()` appear there as warnings labeled "error", so they aren't listed as errors in `stdout` itself on `chrome://extensions`.
 
-Call `stdout()` once from each "page" in your extension from which you want to send console output: the service worker, the popup, content scripts, etc.  If you pass an empty string or `null` for the ID, `stdout()` will silently do nothing, so you can use an environment variable or something similar to enable log forwarding in development mode but disable it in production.
+Call `stdout()` once from each "page" in your extension from which you want to send console output: the service worker, the popup, content scripts, etc.  To turn log forwarding off, such as in production, see [`enabled`](#enabled).
 
 
 ## Options
 
-Instead of passing a plain string ID to `stdout()`, you can also pass an object that contains the `id` and other options.
+You can pass `stdout()` an object with these options.
+
+
+### `enabled`
+
+Set `enabled` to `false` to make `stdout()` silently do nothing.  It defaults to `true`.  Use an environment variable or something similar to send logs in development but not in production:
+
+```js
+stdout({ enabled: process.env.NODE_ENV !== "production" });
+```
 
 
 ### `wrapConsole`
@@ -52,7 +61,7 @@ Instead of passing a plain string ID to `stdout()`, you can also pass an object 
 If you don't want to wrap the global `console` object, set `wrapConsole` to `false`.  In that case, `stdout()` will return an object with the standard console methods that you can call when you want to send console output to the `stdout` extension:
 
 ```js
-const { log, error } = stdout({ id: "...", wrapConsole: false });
+const { log, error } = stdout({ wrapConsole: false });
 
 console.log("this message will not be sent to stdout");
 log("this message will be logged locally *and* sent to stdout", { hello: "world" });
@@ -66,10 +75,10 @@ In the `stdout` devtools window, the filename of your extension page is prefixed
 
 ```js
 // service-worker.js
-stdout({ id: "...", filename: "background" });
+stdout({ filename: "background" });
 
 // popup.html
-stdout({ id: "...", filename: "toolbar" });
+stdout({ filename: "toolbar" });
 ```
 
 

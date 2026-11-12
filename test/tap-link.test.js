@@ -95,7 +95,7 @@ function createWorld(
 	// tap each time a page or worker of the debugged extension starts
 async function startTap(
 	world,
-	{ worker })
+	{ worker, ...options })
 {
 	const realConsole = globalThis.console;
 
@@ -113,7 +113,7 @@ async function startTap(
 	try {
 		const { default: stdout } = await import(`../lib/stdout.js?load=${++loads}`);
 
-		return stdout({ id: StdoutId, filename: worker ? "sw.js" : "popup.html", wrapConsole: false });
+		return stdout({ filename: worker ? "sw.js" : "popup.html", wrapConsole: false, ...options });
 	} finally {
 		globalThis.console = realConsole;
 	}
@@ -180,6 +180,18 @@ test("a tap's console call is stored and echoed by the stdout extension", async 
 	assert.match(format, /%c %s items$/);
 	assert.deepEqual(rest.slice(-3), [2, map, undefined]);
 	assert.equal(world.stored[`registered:${world.tapId}`], true);
+});
+
+test("a disabled tap sends nothing and doesn't listen for reloads", async (t) => {
+	const world = createWorld(t);
+	const tap = await startTap(world, { worker: true, enabled: false });
+
+	tap.log("hidden");
+	await advance(t, 0);
+
+	assert.equal(tap, QuietConsole);
+	assert.deepEqual(world.events, []);
+	assert.deepEqual(world.entries, []);
 });
 
 test("a tap's errors are echoed as labeled warnings", async (t) => {
