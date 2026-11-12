@@ -8,7 +8,7 @@ import { CommandQueue } from "./commands.js";
 import { createExtensionRoutes, ExtensionRoutes } from "./extension-routes.js";
 import { LogStore } from "./store.js";
 import { createMcpServer } from "./tools.js";
-import { getCodeVersion } from "./version.js";
+import { getCodeVersion, getPackageVersion } from "./version.js";
 
 	// returned by route() when it has already sent the response
 const Handled = Symbol("handled");
@@ -77,6 +77,7 @@ export function createDaemonServer(
 	const handleExtensionRequest = createExtensionRoutes({ store, commands });
 	const bootId = randomUUID();
 	const codeVersion = getCodeVersion();
+	const packageVersion = getPackageVersion();
 	const startedAt = Date.now();
 	const allowedHosts = new Set([`127.0.0.1:${port}`, `localhost:${port}`]);
 	let lastActivity = Date.now();
@@ -89,6 +90,7 @@ export function createDaemonServer(
 			status: "ok",
 			pid: process.pid,
 			bootId,
+			packageVersion,
 			codeVersion,
 			startedAt,
 			browsers: store.getBrowsers(),

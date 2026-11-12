@@ -103,7 +103,7 @@ Or add it to the project's `.mcp.json`:
 
 The agent starts the server when it needs it.  The server starts a small background process on port 47321 that holds the logs, runs the tools, and is shared by all agent sessions.  Each session's server only passes messages to it.  The background process exits after two hours without use.  See [docs/architecture.html](docs/architecture.html) for how these pieces fit together.
 
-If the background process was started from an older version of the code, the next agent session to start replaces it.  Sessions that are already open then use the new one.  The `stdout` extension then resends its stored logs within about 30 seconds.
+If the background process was started from an older version of `stdout-mcp`, the next agent session to start replaces it.  Sessions that are already open then use the new one.  The `stdout` extension then resends its stored logs within about 30 seconds.  A background process from a newer version is left running, so agents in projects that use different versions don't keep replacing each other's.
 
 
 ### Agent mode

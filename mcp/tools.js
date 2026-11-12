@@ -12,6 +12,8 @@ import { formatAge } from "./format.js";
  * @property {string} status
  * @property {number} pid
  * @property {string} bootId
+ * @property {string} packageVersion  The stdout-mcp version the daemon was
+ * started from.
  * @property {string} codeVersion  Hash of the code the daemon was started from.
  * @property {number} startedAt
  * @property {import("./store.js").BrowserStatus[]} browsers  The browsers whose

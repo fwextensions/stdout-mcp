@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { StdioServerTransport } from "@modelcontextprotocol/server/stdio";
 import { BaseURL, Port } from "./constants.js";
-import { getCodeVersion } from "./version.js";
+import { shouldReplaceDaemon } from "./version.js";
 
 	// the tools run in the daemon, which keeps the logs and is shared by every
 	// agent session.  this process just starts the daemon if needed and relays
@@ -69,9 +69,11 @@ async function ensureDaemon(
 {
 	let health = await getHealth();
 
-	if (checkVersion && health && health.codeVersion !== getCodeVersion()) {
+	if (checkVersion && health && shouldReplaceDaemon(health)) {
 			// the daemon was started from older code.  replacing it loses the logs it
-			// holds, but the extension resends them within about 30 seconds.
+			// holds, but the extension resends them within about 30 seconds.  a
+			// daemon from a newer package is left alone, so that agents using two
+			// versions of stdout-mcp don't keep replacing each other's.
 		try {
 			process.kill(health.pid);
 		} catch {

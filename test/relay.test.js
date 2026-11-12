@@ -16,7 +16,25 @@ const OldDaemon = `
 		res.end(JSON.stringify({ status: "ok", pid: process.pid, codeVersion: "old" }));
 	}).listen(${port}, "127.0.0.1", () => console.log("listening"));
 `;
+	// stands in for a daemon started from a newer stdout-mcp package
+const NewerDaemon = `
+	require("node:http").createServer((req, res) => {
+		res.writeHead(200, { "Content-Type": "application/json" });
+		res.end(JSON.stringify({ status: "ok", pid: process.pid, packageVersion: "999.0.0", codeVersion: "newer" }));
+	}).listen(${port}, "127.0.0.1", () => console.log("listening"));
+`;
 let client;
+
+function connectRelay()
+{
+	const newClient = new Client({ name: "test", version: "1.0.0" }, { versionNegotiation: { mode: { pin: "2026-07-28" } } });
+
+	return newClient.connect(new StdioClientTransport({
+		command: process.execPath,
+		args: ["mcp/server.js"],
+		env: { ...process.env, STDOUT_MCP_PORT: String(port) },
+	})).then(() => newClient);
+}
 
 after(async () => {
 	const health = await fetch(`${baseURL}/health`).then((response) => response.json(), () => null);
@@ -25,6 +43,34 @@ after(async () => {
 
 	if (health) {
 		process.kill(health.pid);
+	}
+});
+
+test("leaves a daemon from a newer package running", async () => {
+	const newerDaemon = spawn(process.execPath, ["-e", NewerDaemon], { stdio: ["ignore", "pipe", "inherit"] });
+	let exited = false;
+
+	newerDaemon.on("exit", () => exited = true);
+	await once(newerDaemon.stdout, "data");
+
+	try {
+			// the stand-in can't speak MCP, so connecting fails, but the relay checks
+			// the daemon before passing on the first message
+		const newerClient = await connectRelay().catch(() => null);
+
+		await newerClient?.close();
+		await new Promise((resolve) => setTimeout(resolve, 500));
+
+		const health = await fetch(`${baseURL}/health`).then((response) => response.json());
+
+		assert.equal(exited, false);
+		assert.equal(health.pid, newerDaemon.pid);
+	} finally {
+		newerDaemon.kill();
+
+		if (!exited) {
+			await once(newerDaemon, "exit");
+		}
 	}
 });
 
