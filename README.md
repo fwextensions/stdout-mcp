@@ -101,6 +101,22 @@ Or add it to the project's `.mcp.json`:
 }
 ```
 
+For Codex, run:
+
+```shell
+codex mcp add stdout -- npx -y stdout-mcp
+```
+
+Or add it to `~/.codex/config.toml`:
+
+```toml
+[mcp_servers.stdout]
+command = "npx"
+args = ["-y", "stdout-mcp"]
+```
+
+Codex's MCP servers are set for your user rather than for one project, so the server also starts in projects that don't have `stdout-mcp` installed.  The `-y` lets `npx` download it in those projects instead of waiting for you to confirm.
+
 The agent starts the server when it needs it.  The server starts a small background process on port 47321 that holds the logs, runs the tools, and is shared by all agent sessions.  Each session's server only passes messages to it.  The background process exits after two hours without use.  See [docs/architecture.html](docs/architecture.html) for how these pieces fit together.
 
 If the background process was started from an older version of `stdout-mcp`, the next agent session to start replaces it.  Sessions that are already open then use the new one.  The `stdout` extension then resends its stored logs within about 30 seconds.  A background process from a newer version is left running, so agents in projects that use different versions don't keep replacing each other's.
