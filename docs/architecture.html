@@ -262,7 +262,7 @@
 	<main>
 		<header style="display:grid;gap:0.6rem">
 			<div class="eyebrow">stdout-mcp</div>
-			<h1>stdout MCP Architecture</h1>
+			<h1><code>stdout-mcp</code> Architecture</h1>
 			<p class="lede">How console output gets from your extension to a coding agent, what the tap, the stdout extension and the daemon say to each other, and why the agent talks stdio to a relay instead of HTTP to the daemon.</p>
 		</header>
 
@@ -505,12 +505,6 @@
 				</table>
 			</div>
 			<p>The extra hop is a local pipe plus one loopback HTTP request, so it adds only a few milliseconds to each call.</p>
-		</section>
-
-		<section>
-			<h2>About "streamable"</h2>
-			<p>Streamable HTTP is MCP's name for its HTTP transport. Each message is a POST, and the server can answer with plain JSON or, when it has several messages to send before the result (such as progress updates), with a stream of server-sent events. These tools don't send progress, so the daemon answers each request with a single JSON response. The relay gets that response and passes it straight to the agent.</p>
-			<p>With the 2026-07-28 protocol there are no sessions on the HTTP side either. Every request carries its own protocol version, so each one is handled by a fresh server. Clients still using the 2025 protocol are served the same way.</p>
 		</section>
 
 		<section>

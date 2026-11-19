@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "stdout",
   "version": "0.1.0",
-  "description": "A simple Chrome extension for console-logging *other* Chrome extensions",
+  "description": "Collects console output from the extensions you're developing, so you and your coding agent can read it",
   "author": "John Dunning",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA5n61lRp/r9R97KNjJmlC3r8BMITsxawk3KdiAWSpC+o2R+uExvn783GOORiWxzPvT5vNQnKxJZ0SLsFIPN73+FfOIqaZRZPHMpKegIjKUnLPT7H/aQ3efex39QLAMG/3qBCNv+kqFcZ3I+gDysWyIrmbzMgy0hKMmOuYBMNRnukbVeaR7g8xDUw6xWawCoVPkD6433yfC0/mw9S8Y/PmDLBQm1k58COLMe7bJvh2dlltdxlAwOu1Ie87suZ4mycLSHs1vMsrBQzEVvbtRnZOQkAppcNWb9qGoNozYZEwkLR/0l7+WMi75HRTIXM4/BJablLkBGuq3E8Sd0j+vXYafwIDAQAB",
   "icons": {

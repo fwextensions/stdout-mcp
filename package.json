@@ -1,14 +1,21 @@
 {
   "name": "stdout-mcp",
   "version": "0.1.0",
-  "description": "A simple Chrome extension for console-logging *other* Chrome extensions",
+  "description": "Let coding agents read your Chrome extension's console logs and reload it, without keeping its service worker awake",
   "keywords": [
     "chrome",
+    "chrome-extension",
     "extension",
-    "service worker",
-    "manifest v3",
+    "service-worker",
+    "manifest-v3",
     "console",
-    "mcp"
+    "logging",
+    "debugging",
+    "mcp",
+    "mcp-server",
+    "claude-code",
+    "codex",
+    "coding-agent"
   ],
   "author": "John Dunning",
   "license": "MIT",
