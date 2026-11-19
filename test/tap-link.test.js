@@ -9,7 +9,8 @@ import { toJSONSafe } from "../extension/value-tags.js";
 
 const ReloadDelay = 100;
 const NotListening = "Could not establish connection. Receiving end does not exist.";
-const QuietConsole = Object.fromEntries(Object.keys(console).map((key) => [key, () => {}]));
+const MethodsKey = Symbol.for("stdout-mcp.methods");
+const QuietConsole =Object.fromEntries(Object.keys(console).map((key) => [key, () => {}]));
 
 let loads = 0;
 let worlds = 0;
@@ -46,6 +47,7 @@ function createWorld(
 	t.mock.timers.enable({ apis: ["setTimeout"] });
 	globalThis.chrome = {
 		runtime: {
+			id: tapId,
 			getManifest: () => ({ name: "Test" }),
 			reload: () => {
 				world.reloads++;
@@ -91,8 +93,9 @@ function createWorld(
 	return world;
 }
 
-	// stdout() only sets itself up once per module, so load a fresh copy of the
-	// tap each time a page or worker of the debugged extension starts
+	// stdout() only sets itself up once per global object, so load a fresh copy of
+	// the tap and clear what it left on the global each time a page or worker of the
+	// debugged extension starts
 async function startTap(
 	world,
 	{ worker, ...options })
@@ -100,6 +103,7 @@ async function startTap(
 	const realConsole = globalThis.console;
 
 	world.tapListener = null;
+	delete globalThis[MethodsKey];
 
 	if (worker) {
 		globalThis.ServiceWorkerGlobalScope = class {};
@@ -181,6 +185,57 @@ test("a tap's console call is stored and echoed by the stdout extension", async 
 	assert.deepEqual(rest.slice(-3), [2, map, undefined]);
 	assert.equal(world.stored[`registered:${world.tapId}`], true);
 });
+
+test("content scripts with separate copies of the tap share the first one's methods", async (t) => {
+	const world = createWorld(t);
+	const first = await startTap(world, { filename: "first.js" });
+		// a second bundle in the same isolated world loads its own copy of the module,
+		// but sees the same global object
+	const { default: stdout } = await import(`../lib/stdout.js?load=${++loads}`);
+	const second = stdout({ filename: "second.js", wrapConsole: false });
+
+	second.log("once");
+	await advance(t, 0);
+
+	assert.equal(second, first);
+	assert.equal(world.entries.length, 1);
+	assert.equal(world.entries[0].filename, "first.js");
+});
+
+test("a tap without extension APIs, like in a MAIN-world script, sends nothing", async (t) => {
+	const world = createWorld(t);
+
+	delete chrome.runtime;
+
+	const tap = await startTap(world, {});
+
+	tap.log("hidden");
+	await advance(t, 0);
+
+	assert.equal(tap, QuietConsole);
+	assert.deepEqual(world.events, []);
+	assert.deepEqual(world.entries, []);
+});
+
+for (const [url, filename] of [
+	["chrome-extension://abc/popup.html", "popup.html"],
+	["https://example.com/some/page", "content:example.com"],
+	["file:///C:/page.html", "content:file"],
+]) {
+	test(`a tap on ${url} is named ${filename} by default`, async (t) => {
+		const world = createWorld(t);
+
+		globalThis.location = new URL(url);
+		t.after(() => delete globalThis.location);
+
+		const tap = await startTap(world, { filename: undefined });
+
+		tap.log("named");
+		await advance(t, 0);
+
+		assert.equal(world.entries[0].filename, filename);
+	});
+}
 
 test("a disabled tap sends nothing and doesn't listen for reloads", async (t) => {
 	const world = createWorld(t);
