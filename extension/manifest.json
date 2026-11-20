@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "stdout",
+  "name": "stdout-mcp",
   "version": "0.1.0",
   "description": "Collects console output from the extensions you're developing, so you and your coding agent can read it",
   "author": "John Dunning",
