@@ -2,7 +2,7 @@
 import { CheckInPeriodSeconds, DaemonLinkVersion } from "../extension/daemon-link.js";
 import { formatAge } from "./format.js";
 
-// What the daemon can tell about the stdout extension from its check-ins, and
+// What the daemon can tell about the stdout-mcp extension from its check-ins, and
 // what it tells agents about that.  Every timing here comes from the check-in
 // period, which is set by the extension.
 
@@ -95,7 +95,7 @@ function getBrowserNotes(
 	named,
 	now)
 {
-	const extension = named ? `the stdout extension in ${label}` : "the stdout extension";
+	const extension = named ? `the stdout-mcp extension in ${label}` : "the stdout-mcp extension";
 	const fromIt = named ? ` from ${label}` : "";
 
 	if (now - lastCheckInAt > StaleTime) {
@@ -109,7 +109,7 @@ function getBrowserNotes(
 
 	if (daemonLinkVersion !== null && daemonLinkVersion < DaemonLinkVersion) {
 		return [`Note: ${extension} is older than this MCP server, so logs or commands may not work. `
-			+ "Ask the user to click the reload button for stdout on the browser's extensions page."];
+			+ "Ask the user to click the reload button for stdout-mcp on the browser's extensions page."];
 	}
 
 	if (daemonLinkVersion !== null && daemonLinkVersion > DaemonLinkVersion) {
@@ -137,15 +137,15 @@ export function getConnectionNote(
 	const notes = [];
 
 	if (batchRejection) {
-		notes.push(`Note: the MCP server couldn't accept the stdout extension's last batch of logs (${batchRejection}), so newer logs are missing.`);
+		notes.push(`Note: the MCP server couldn't accept the stdout-mcp extension's last batch of logs (${batchRejection}), so newer logs are missing.`);
 	}
 
 	if (!browsers.some(({ lastCheckInAt }) => lastCheckInAt)) {
 		if (!batchRejection) {
-			notes.push(`Note: the stdout extension hasn't sent anything since the MCP server started ${formatAge(startedAt, now)}. `
-				+ "If agent mode is on (the stdout toolbar icon shows an MCP badge), its stored logs "
+			notes.push(`Note: the stdout-mcp extension hasn't sent anything since the MCP server started ${formatAge(startedAt, now)}. `
+				+ "If agent mode is on (the stdout-mcp toolbar icon shows an MCP badge), its stored logs "
 				+ `will arrive within about ${CheckInPeriodSeconds} seconds. `
-				+ "Otherwise, ask the user to click the stdout toolbar icon to turn on agent mode.");
+				+ "Otherwise, ask the user to click the stdout-mcp toolbar icon to turn on agent mode.");
 		}
 
 		return notes.join("\n");

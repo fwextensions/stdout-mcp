@@ -1,6 +1,6 @@
 // @ts-check
 
-// The daemon connection: the stdout extension's ongoing effort, during agent
+// The daemon connection: the stdout-mcp extension's ongoing effort, during agent
 // mode, to keep the daemon caught up and answer its commands.  It can't use
 // Chrome APIs, so that it can be tested against a real daemon.
 
@@ -132,7 +132,7 @@ export function createDaemonConnection(
 	{
 		const outcome = await isAgentMode()
 			? await runCommand(command)
-			: { error: "Agent mode was turned off in the stdout extension." };
+			: { error: "Agent mode was turned off in the stdout-mcp extension." };
 
 		await link.sendCommandResult(bufferId, command.id, outcome);
 	}

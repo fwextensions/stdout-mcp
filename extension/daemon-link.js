@@ -1,6 +1,6 @@
 // @ts-check
 
-// The Daemon Link: the conversation between the stdout extension and the
+// The Daemon Link: the conversation between the stdout-mcp extension and the
 // daemon.  It lives here because an unpacked extension can't import anything
 // outside its own folder, and the daemon imports it from here, so it can't use
 // Chrome or Node APIs.
@@ -94,7 +94,7 @@ const Encoder = new TextEncoder();
  * @typedef {object} CommandResult
  * @property {ReloadResult} [result]  What the command did.  Reload is the only
  * command so far.
- * @property {string} [error]  Why the stdout extension couldn't run the command.
+ * @property {string} [error]  Why the stdout-mcp extension couldn't run the command.
  */
 
 function getEntryBytes(
@@ -120,7 +120,7 @@ function fitInBatch(
 	for (const entry of entries) {
 		const entryBytes = getEntryBytes(entry);
 		const item = entryBytes > MaxEntriesBytes
-			? { ...entry, args: [`[stdout: this entry was ${(entryBytes / BytesPerMB).toFixed(1)} MB, which is too large to send to the MCP server]`] }
+			? { ...entry, args: [`[stdout-mcp: this entry was ${(entryBytes / BytesPerMB).toFixed(1)} MB, which is too large to send to the MCP server]`] }
 			: entry;
 
 		bytes += item === entry ? entryBytes : getEntryBytes(item);
@@ -136,7 +136,7 @@ function fitInBatch(
 }
 
 /**
- * The stdout extension's half of the conversation.  Each exchange throws if the
+ * The stdout-mcp extension's half of the conversation.  Each exchange throws if the
  * daemon can't be reached or returns an error.
  *
  * @param {{ fetch?: typeof fetch, baseURL?: string }} [options]

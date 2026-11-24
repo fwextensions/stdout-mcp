@@ -30,7 +30,7 @@ export const UnknownBrowser = "unknown";
  */
 
 /**
- * Holds commands for the stdout extension until it asks for them.  The daemon
+ * Holds commands for the stdout-mcp extension until it asks for them.  The daemon
  * can't reach the extension's service worker, so the worker long-polls for
  * commands while an agent is active.  Each browser has its own poll, so that
  * two browsers' polls don't end each other.

@@ -15,9 +15,9 @@ const BadgeColors = {
 	[ConnectionStatus.Connected]: "#2e7d32",
 };
 const Titles = {
-	[ConnectionStatus.Off]: "stdout: click to let coding agents read the logs",
-	[ConnectionStatus.Looking]: "stdout: waiting for the stdout-mcp server (click to stop)",
-	[ConnectionStatus.Connected]: "stdout: agents can read the logs (click to stop)",
+	[ConnectionStatus.Off]: "stdout-mcp: click to let coding agents read the logs",
+	[ConnectionStatus.Looking]: "stdout-mcp: waiting for the MCP server (click to stop)",
+	[ConnectionStatus.Connected]: "stdout-mcp: agents can read the logs (click to stop)",
 };
 
 async function isAgentMode()

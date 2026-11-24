@@ -2,7 +2,7 @@
 import { toJSONSafe } from "./value-tags.js";
 
 // The Tap Link: the conversation between a tap, which runs inside an extension
-// being debugged, and the stdout extension.  It lives here because an unpacked
+// being debugged, and the stdout-mcp extension.  It lives here because an unpacked
 // extension can't import anything outside its own folder, and the tap imports
 // it from here, so it can't use Chrome or Node APIs.
 
@@ -18,7 +18,7 @@ export const TapMessageType = {
 	Register: "register",
 		// sent by the tap for each console call
 	Log: "log",
-		// sent by the stdout extension to ask a tap's service worker to reload
+		// sent by the stdout-mcp extension to ask a tap's service worker to reload
 		// the whole extension
 	Reload: "reload",
 };

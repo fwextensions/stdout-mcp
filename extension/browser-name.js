@@ -1,6 +1,6 @@
 // @ts-check
 
-// What agents call the browser this copy of the stdout extension runs in.  The
+// What agents call the browser this copy of the stdout-mcp extension runs in.  The
 // user can give it a name, such as "Canary" or "Chrome: work", since nothing
 // an extension can read tells Chrome's channels or profiles apart.  Otherwise,
 // it's the browser's brand and major version, like "Edge 146".  This can't use

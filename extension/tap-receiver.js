@@ -97,7 +97,7 @@ function echoWithLabel(
 }
 
 /**
- * Create the stdout extension's end of the Tap Link, which handles what taps
+ * Create the stdout-mcp extension's end of the Tap Link, which handles what taps
  * send it.
  *
  * @param {object} options
@@ -154,7 +154,7 @@ export function createTapReceiver(
 			method,
 			args,
 		})
-			.catch((error) => console.error("stdout: couldn't store log entry", error));
+			.catch((error) => console.error("stdout-mcp: couldn't store log entry", error));
 
 		echo(console, message, (senderIDs.size > 1 ? sender.id.slice(0, 4) + " " : "") + filename);
 

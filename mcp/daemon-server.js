@@ -56,7 +56,7 @@ function readJSON(
  * @typedef {object} DaemonServerOptions
  * @property {number} port  The port the server will listen on, which requests
  * must be addressed to.
- * @property {string} extensionOrigin  The stdout extension's origin, the only
+ * @property {string} extensionOrigin  The stdout-mcp extension's origin, the only
  * one that may send entries or get commands.
  * @property {number} idleTimeout  How long to go without a request from an MCP
  * server before calling onIdle.

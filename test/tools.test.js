@@ -123,7 +123,7 @@ test("doesn't wait on an extension that isn't checking in", async () => {
 
 	assert.equal(queued, false);
 	assert.equal(isError, true);
-	assert.match(text, /Can't reload A right now.*ask the user to click the stdout toolbar icon/s);
+	assert.match(text, /Can't reload A right now.*ask the user to click the stdout-mcp toolbar icon/s);
 });
 
 test("reloads when the extension checked in recently", async () => {
@@ -196,5 +196,5 @@ test("doesn't reload in a browser that has stopped checking in", async () => {
 
 	assert.equal(queued, false);
 	assert.equal(isError, true);
-	assert.match(text, /Can't reload A right now\. Note: the stdout extension in Edge 146 last checked in 10 minutes ago/);
+	assert.match(text, /Can't reload A right now\. Note: the stdout-mcp extension in Edge 146 last checked in 10 minutes ago/);
 });

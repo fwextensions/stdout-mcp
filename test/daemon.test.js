@@ -79,7 +79,7 @@ test("refuses requests addressed to another host name", async (t) => {
 	assert.equal((await send(port, { method: "GET", path: "/health", origin: null, host: `localhost:${port}` })).status, 200);
 });
 
-test("only lets the stdout extension send entries, and web pages read nothing", async (t) => {
+test("only lets the stdout-mcp extension send entries, and web pages read nothing", async (t) => {
 	const port = await startDaemon(t);
 
 	assert.equal((await send(port, { origin: "https://example.com" })).status, 403);

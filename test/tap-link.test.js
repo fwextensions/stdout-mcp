@@ -15,9 +15,9 @@ const QuietConsole =Object.fromEntries(Object.keys(console).map((key) => [key, (
 let loads = 0;
 let worlds = 0;
 
-	// a stand-in for Chrome with the stdout extension and one extension being
-	// debugged, whose tap and the stdout extension's receiver talk for real.  each
-	// gets its own ID, since the stdout extension only stores a registration once.
+	// a stand-in for Chrome with the stdout-mcp extension and one extension being
+	// debugged, whose tap and the stdout-mcp extension's receiver talk for real.  each
+	// gets its own ID, since the stdout-mcp extension only stores a registration once.
 function createWorld(
 	t)
 {
@@ -159,7 +159,7 @@ const reload = (world) => runCommand({
 	args: { extension: world.tapId, reloadManifest: true },
 });
 
-test("a tap's console call is stored and echoed by the stdout extension", async (t) => {
+test("a tap's console call is stored and echoed by the stdout-mcp extension", async (t) => {
 	const world = createWorld(t);
 	const tap = await startTap(world, { worker: true });
 	const map = new Map([[1, new Set(["a"])]]);
@@ -352,7 +352,7 @@ for (const [description, message] of [
 	["an unknown type", { type: "hello" }],
 	["no message", null],
 ]) {
-	test(`the stdout extension ignores ${description}`, async (t) => {
+	test(`the stdout-mcp extension ignores ${description}`, async (t) => {
 		const world = createWorld(t);
 		const answer = await chrome.runtime.sendMessage(StdoutId, message);
 

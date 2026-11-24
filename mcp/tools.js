@@ -26,7 +26,7 @@ import { formatAge } from "./format.js";
 
 const Instructions = `\
 Reads console output from Chrome extensions under development. The extension \
-being debugged forwards its console calls to the "stdout" helper extension, \
+being debugged forwards its console calls to the "stdout-mcp" helper extension, \
 which stores them even when no agent is connected, so logs from before this \
 session started are available.
 
@@ -36,7 +36,7 @@ together, so when you know which extension you're working on, such as from \
 the name in the project's manifest.json, pass it as \`extension\`. get_logs \
 says when its results come from more than one extension.
 
-The stdout extension can run in more than one browser at once, such as Chrome \
+The stdout-mcp extension can run in more than one browser at once, such as Chrome \
 and Edge, or Chrome and Canary. Each entry then says which browser it came \
 from, and \`browser\` limits results to one of them. list_sources lists the \
 browsers by the names the user gave them, or by brand and version.
@@ -56,8 +56,8 @@ be reloaded. If you changed manifest.json, pass reloadManifest and check \
 whether the result says it worked. Open tabs keep any old content scripts \
 until they're refreshed.
 
-If the tools report that the stdout extension hasn't sent anything, ask the \
-user to click the stdout extension's toolbar icon in Chrome so it shows an MCP \
+If the tools report that the stdout-mcp extension hasn't sent anything, ask the \
+user to click the stdout-mcp extension's toolbar icon in Chrome so it shows an MCP \
 badge. That turns on agent mode, which lets the extension send logs here.`;
 
 const filterShape = {
@@ -548,13 +548,13 @@ export function createMcpServer(
 				const { result, error, timedOut, cancelled, cursor } = await promise;
 
 				if (timedOut === "pickup") {
-					throw new Error(`The stdout extension${where} didn't pick up the reload within ${PickupTimeout / 1000} seconds. `
+					throw new Error(`The stdout-mcp extension${where} didn't pick up the reload within ${PickupTimeout / 1000} seconds. `
 						+ (getConnectionNote(getStatus()) || "Chrome may be busy, so try again."));
 				}
 
 					// the reload may have worked, so a retry could reload it twice
 				if (timedOut === "result") {
-					throw new Error(`The stdout extension started reloading ${extension}${where}, but didn't say how it went `
+					throw new Error(`The stdout-mcp extension started reloading ${extension}${where}, but didn't say how it went `
 						+ `within ${CommandRunSeconds} seconds. Check its logs before trying again, since it may `
 						+ `have reloaded.\n\ncursor: ${cursor} (pass as \`after\` to get the entries logged since `
 						+ "the reload started)");
@@ -583,7 +583,7 @@ export function createMcpServer(
 		{
 			title: "List log sources",
 			description: "List the Chrome extensions and pages that have sent logs, and the browsers "
-				+ "the stdout extension is sending them from.",
+				+ "the stdout-mcp extension is sending them from.",
 			inputSchema: z.object({}),
 			annotations: { readOnlyHint: true },
 		},
@@ -593,9 +593,9 @@ export function createMcpServer(
 				const browsers = result.browsers ?? [];
 				const labels = getBrowserLabels(result);
 				const status = `MCP server started ${formatAge(result.startedAt)} and holds ${result.entryCount} entries.`
-					+ (browsers.length ? "" : " The stdout extension hasn't checked in yet.");
+					+ (browsers.length ? "" : " The stdout-mcp extension hasn't checked in yet.");
 				const browserList = browsers.map(({ id, label, lastCheckInAt }) =>
-					`- ${label} (${id}): the stdout extension last checked in ${formatAge(lastCheckInAt)}`);
+					`- ${label} (${id}): the stdout-mcp extension last checked in ${formatAge(lastCheckInAt)}`);
 				const sources = result.sources.map(({ extensionId, extensionName, browserId, count, lastTime, filenames }) => {
 					const files = Object.entries(filenames)
 						.map(([filename, fileCount]) => `${filename} (${fileCount})`)

@@ -130,7 +130,7 @@ test("both readers show binary data the same way", () => {
 	assert.equal(fromJSONSafe(encoded), "Uint8Array(4)");
 });
 
-test("rebuilds values for display in the stdout extension's console", () => {
+test("rebuilds values for display in the stdout-mcp extension's console", () => {
 	const error = new RangeError("too far");
 	const value = fromJSONSafe(JSON.parse(JSON.stringify(toJSONSafe({
 		error,

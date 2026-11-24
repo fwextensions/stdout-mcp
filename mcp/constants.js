@@ -6,7 +6,7 @@ export const Port = Number(process.env.STDOUT_MCP_PORT) || DefaultPort;
 
 export const BaseURL = `http://127.0.0.1:${Port}`;
 
-	// only the stdout extension may send log entries
+	// only the stdout-mcp extension may send log entries
 export const ExtensionOrigin = `chrome-extension://${StdoutId}`;
 
 	// the daemon exits after this long without a request from an MCP server, so

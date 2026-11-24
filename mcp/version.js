@@ -20,7 +20,7 @@ export function getCodeVersion()
 	const hash = createHash("sha256");
 
 		// the daemon also runs the extension's definitions of the Daemon Link, the
-		// Tap Link (for the stdout extension's ID) and the value tags
+		// Tap Link (for the stdout-mcp extension's ID) and the value tags
 	files.push(
 		new URL("../extension/daemon-link.js", McpDir),
 		new URL("../extension/tap-link.js", McpDir),

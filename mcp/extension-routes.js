@@ -9,7 +9,7 @@ export const ExtensionRoutes = new Set(Object.values(LinkRoutes));
 
 /**
  * The daemon's half of the Daemon Link.  The caller is responsible for HTTP
- * and for checking that a request came from the stdout extension.
+ * and for checking that a request came from the stdout-mcp extension.
  *
  * @param {{ store: import("./store.js").LogStore, commands: import("./commands.js").CommandQueue, commandPollTime?: number }} options
  * @returns {(route: string, readBody: () => Promise<any>, onClose: (listener: () => void) => void, bufferId?: string) => Promise<object>}

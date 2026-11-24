@@ -34,7 +34,7 @@ function renderArgs(
 
 /**
  * @typedef {object} Browser
- * One install of the stdout extension, in one profile of one browser.
+ * One install of the stdout-mcp extension, in one profile of one browser.
  * @property {string} id  A short form of its buffer ID, for agents to pass.
  * @property {string|undefined} bufferId
  * @property {string|null} name  What the extension calls it, or null if it
@@ -127,7 +127,7 @@ function createMatcher(
 }
 
 /**
- * Holds a copy of the log entries buffered by the stdout extension in each
+ * Holds a copy of the log entries buffered by the stdout-mcp extension in each
  * browser that sends them.  Each browser sends its entries in order of their
  * sequence numbers, and has its own sync position.  Entries from every browser
  * are renumbered into one list as they arrive, so that cursors cover them all

@@ -38,7 +38,7 @@ test("says how to turn on agent mode while the extension hasn't checked in, even
 
 	assert.match(note, /hasn't sent anything since the MCP server started 5 seconds ago/);
 	assert.match(note, /within about 30 seconds/);
-	assert.match(note, /click the stdout toolbar icon/);
+	assert.match(note, /click the stdout-mcp toolbar icon/);
 });
 
 test("a stale check-in outranks a rejected batch", () => {
@@ -61,7 +61,7 @@ test("says which side to update when the Daemon Link versions differ", () => {
 test("names the browser a note is about when there's more than one", () => {
 	const note = getConnectionNote(status(edge, { ...chrome, lastCheckInAt: secondsAgo(300) }), Now);
 
-	assert.match(note, /the stdout extension in Chrome 146 last checked in 5 minutes ago/);
+	assert.match(note, /the stdout-mcp extension in Chrome 146 last checked in 5 minutes ago/);
 	assert.match(note, /Newer logs from Chrome 146 may be missing/);
 	assert.match(getConnectionNote(status(chrome, { ...edge, batchRejection: "too large" }), Now), /last batch of logs from Edge 146 \(too large\)/);
 	assert.doesNotMatch(getConnectionNote(healthy, Now), /in Chrome/);

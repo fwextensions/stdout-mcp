@@ -35,7 +35,7 @@ export function registerExtension(
 	chrome.storage.local.set({ [RegisteredPrefix + id]: true })
 		.catch((error) => {
 			registeredIDs.delete(id);
-			console.error("stdout: couldn't register extension", error);
+			console.error("stdout-mcp: couldn't register extension", error);
 		});
 }
 
@@ -214,13 +214,13 @@ export async function runCommand(
 	const command = Object.hasOwn(Commands, name) && Commands[name];
 
 	if (!command) {
-		return { error: `The stdout extension doesn't know the "${name}" command. It may be older than the MCP server.` };
+		return { error: `The stdout-mcp extension doesn't know the "${name}" command. It may be older than the MCP server.` };
 	}
 
 	let timer;
 	const deadline = new Promise((resolve) => {
 		timer = setTimeout(resolve, CommandDeadline, {
-			error: `The stdout extension couldn't finish the ${name} command within ${CommandDeadline / 1000} seconds. `
+			error: `The stdout-mcp extension couldn't finish the ${name} command within ${CommandDeadline / 1000} seconds. `
 				+ "It may still finish, so check the logs before trying again.",
 		});
 	});

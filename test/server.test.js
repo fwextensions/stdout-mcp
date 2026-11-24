@@ -122,7 +122,7 @@ test("starts the daemon and reports that the extension hasn't connected", async 
 	assert.match(text, /hasn't sent anything/);
 });
 
-test("only accepts entries from the stdout extension", async () => {
+test("only accepts entries from the stdout-mcp extension", async () => {
 	const batch = { bufferId, syncPosition: 0, entries: [] };
 
 	assert.equal((await post(LinkRoutes.Ingest, batch, "chrome-extension://someoneelse")).status, 403);
@@ -251,12 +251,12 @@ async function answerReload(
 	return call;
 }
 
-test("only the stdout extension can get commands or report results", async () => {
+test("only the stdout-mcp extension can get commands or report results", async () => {
 	assert.equal((await post(LinkRoutes.Commands, {}, "https://example.com")).status, 403);
 	assert.equal((await post(LinkRoutes.CommandResult, { id: 1 }, "chrome-extension://someoneelse")).status, 403);
 });
 
-test("reloads an extension through the stdout extension", async () => {
+test("reloads an extension through the stdout-mcp extension", async () => {
 	const text = await answerReload({ result: { id: "abc", name: "Test Extension", manifest: "skipped" } });
 
 	assert.match(text, /Reloaded the code of Test Extension \(abc\)\. manifest\.json was not read again/);
@@ -326,7 +326,7 @@ test("warns when the extension's Daemon Link version differs", async () => {
 	const check = (body) => post(LinkRoutes.Ingest, { bufferId, syncPosition, entries: [], ...body })
 		.then(() => callTool("get_logs", { limit: 1 }));
 
-	assert.match(await check({}), /Note: the stdout extension is older .*reload button/);
+	assert.match(await check({}), /Note: the stdout-mcp extension is older .*reload button/);
 	assert.match(await check({ linkVersion: DaemonLinkVersion - 1 }), /is older/);
 	assert.match(await check({ linkVersion: DaemonLinkVersion + 1 }), /is newer .*update the stdout-mcp package/);
 
@@ -339,7 +339,7 @@ test("tells agents when a batch is too big, until one is accepted", async () => 
 
 		// the daemon hangs up without reading the whole request
 	await post(LinkRoutes.Ingest, body).catch(() => {});
-	assert.match(await callTool("get_logs", { limit: 1 }), /couldn't accept the stdout extension's last batch of logs \(Request body too large\)/);
+	assert.match(await callTool("get_logs", { limit: 1 }), /couldn't accept the stdout-mcp extension's last batch of logs \(Request body too large\)/);
 
 	await send(entry(["after the big one"]));
 	assert.doesNotMatch(await callTool("get_logs", { limit: 1 }), /couldn't accept/);
@@ -365,7 +365,7 @@ test("tells agents which browser each entry came from when there's more than one
 
 	const sources = await callTool("list_sources");
 
-	assert.match(sources, /Browsers:\n(- .*\n)*- Edge 146 \(edge-buf\): the stdout extension last checked in/);
+	assert.match(sources, /Browsers:\n(- .*\n)*- Edge 146 \(edge-buf\): the stdout-mcp extension last checked in/);
 	assert.match(sources, /Test Extension \(abcdefghijklmnopabcdefghijklmnop\) in Edge 146: 1 entries/);
 
 	const call = callTool("reload_extension", { extension: "Test Extension", browser: "edge 146" });

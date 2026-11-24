@@ -90,7 +90,7 @@ function truncateString(
 }
 
 /**
- * Convert a value into one that survives being sent to the stdout extension.
+ * Convert a value into one that survives being sent to the stdout-mcp extension.
  * Extension messages are serialized as JSON, so values JSON can't represent
  * (undefined, bigints, Maps, Errors, cycles, etc.) become value tags, which the
  * stdout extension and MCP server know how to display.  Very long strings, big
