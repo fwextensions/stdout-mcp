@@ -36,15 +36,16 @@
   ],
   "exports": {
     ".": {
-      "import": "./lib/stdout.js",
-      "types": "./types/lib/stdout.d.ts"
+      "types": "./types/lib/stdout.d.ts",
+      "import": "./lib/stdout.js"
     }
   },
   "scripts": {
     "build": "tsc",
     "typecheck": "npm run build && tsc -p mcp",
     "test": "node --test \"test/*.test.js\"",
-    "prepublishOnly": "npm run typecheck"
+    "prepublishOnly": "npm run typecheck",
+    "release": "dotenv release-it"
   },
   "bin": {
     "stdout-mcp": "mcp/server.js"
@@ -59,8 +60,63 @@
     "zod": "^4.6.7"
   },
   "devDependencies": {
+    "@release-it/bumper": "^8.0.1",
+    "@release-it/conventional-changelog": "^12.0.2",
     "@types/chrome": "^0.3.6",
     "@types/node": "^20.19.43",
+    "dotenv-cli": "^11.1.0",
+    "release-it": "^21.1.2",
     "typescript": "^5.5.4"
+  },
+  "release-it": {
+    "hooks": {
+      "before:init": [
+        "npm run typecheck",
+        "npm test"
+      ]
+    },
+    "git": {
+      "tagName": "v${version}"
+    },
+    "github": {
+      "release": true
+    },
+    "plugins": {
+      "@release-it/bumper": {
+        "out": {
+          "file": "extension/manifest.json",
+          "path": "version"
+        }
+      },
+      "@release-it/conventional-changelog": {
+        "preset": {
+          "name": "conventionalcommits",
+          "types": [
+            {
+              "type": "feat",
+              "section": "Added"
+            },
+            {
+              "type": "fix",
+              "section": "Fixes"
+            },
+            {
+              "type": "chore",
+              "section": "Chores"
+            },
+            {
+              "type": "ci",
+              "section": "CI/CD"
+            }
+          ]
+        },
+        "infile": "CHANGELOG.md",
+        "header": "# Changelog",
+        "ignoreRecommendedBump": true
+      }
+    }
+  },
+  "overrides": {
+    "basic-ftp": "^6.2.6"
   }
 }

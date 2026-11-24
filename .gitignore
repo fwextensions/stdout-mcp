@@ -26,3 +26,6 @@ dist-ssr
 # Build directories and files
 types
 *.tgz
+
+# Secrets for release-it
+.env
